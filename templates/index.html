@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div class="fade-in-up">
+    <h1>Your Personal Health Guardian</h1>
+    <p>Intelligent symptom analysis, proactive reminders, and personalized health plans—all in one secure place.</p>
+    <div class="actions">
+      <a class="btn" href="{{ url_for('assistant') }}">Ask AI Assistant</a>
+      {% if not current_user.is_authenticated %}
+      <a class="btn btn-ghost" href="{{ url_for('register') }}">Get Started for Free</a>
+      {% else %}
+      <a class="btn btn-ghost" href="{{ url_for('profile') }}">View My Profile</a>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<div class="grid">
+  <section class="card fade-in-up delay-1">
+    <h2>Upcoming Reminders</h2>
+    {% if current_user.is_authenticated and upcoming %}
+      <ul class="list list-separated">
+        {% for r in upcoming %}
+          <li>
+            <div>
+              <span class="pill {{ r.kind }}">{{ r.kind }}</span>
+              <strong>{{ r.title }}</strong>
+            </div>
+            <span class="muted">{{ r.due_at.strftime("%b %d, %-I:%M %p") }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% elif current_user.is_authenticated %}
+        <p class="muted">You have no upcoming reminders. <a href="{{ url_for('reminders') }}">Create one now</a>.</p>
+    {% else %}
+      <p class="muted">Log in to see and create personalized health reminders.</p>
+    {% endif %}
+  </section>
+
+  <section class="card fade-in-up delay-2">
+    <h2>Go Pro</h2>
+    <p class="muted small">Upgrade to Pro for unlimited AI assistant chats, advanced health plans, and full data export capabilities.</p>
+    {% if stripe_public and price_id %}
+      <button class="btn" id="buyBtn">Subscribe to Pro</button>
+      <script>
+        window.STRIPE_KEY="{{ stripe_public }}"; window.PRICE_ID="{{ price_id }}";
+      </script>
+      <script src="{{ url_for('static', filename='js/billing.js') }}"></script>
+    {% else %}
+      <p class="muted small">Billing is not configured yet. Set STRIPE_* variables in your .env file to enable subscriptions.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

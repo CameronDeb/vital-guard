@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card glow fade-in-up">
+  <h2>AI Health Assistant</h2>
+  <p class="muted small">Describe your symptoms or ask a health question. Your AI assistant will provide guidance based on your health profile.</p>
+  <div class="form">
+    <label for="symptoms">How are you feeling today?</label>
+    <textarea id="symptoms" rows="4" placeholder="Example: I've had a persistent cough and a slight fever for three days. What should I do?"></textarea>
+    <button id="checkBtn" class="btn">Get AI Guidance</button>
+  </div>
+  <div id="result" class="result hide">
+    <div class="triage">
+      <h3>Assessment</h3>
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+        <span class="badge" id="urgencyBadge">low</span>
+        <div>
+          <strong>Suggested Specialty:</strong> <span id="spec">Primary Care</span>
+        </div>
+      </div>
+
+      <h4>Recommended Actions</h4>
+      <ul id="adviceList"></ul>
+
+      <h4>Lifestyle & Wellness Tips</h4>
+      <ul id="lifeList"></ul>
+      
+      <div id="doctorSearch" class="hide" style="margin-top: 20px;">
+        <h4>Find a Specialist</h4>
+        <p class="muted small">Here is a link to help you find a relevant specialist in your area.</p>
+        <a id="doctorLink" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-ghost">Search for Doctors</a>
+      </div>
+
+      <p class="muted small" id="disc" style="margin-top: 24px; border-top: 1px dashed var(--border); padding-top: 16px;"></p>
+    </div>
+  </div>
+</section>
+
+<script src="{{ url_for('static', filename='js/assistant.js') }}"></script>
+{% endblock %}

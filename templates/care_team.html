@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card glow fade-in-up">
+  <h2>Care Team</h2>
+  <form method="post" class="form">
+    <div class="grid-2">
+      <label>Caregiver email <input name="caregiver_email" placeholder="caregiver@example.com"></label>
+      <label>Role
+        <select name="role">
+          <option value="viewer">Viewer</option>
+          <option value="editor">Editor</option>
+        </select>
+      </label>
+    </div>
+    <button class="btn">Add caregiver</button>
+  </form>
+</section>
+<section class="card glow fade-in-up">
+  <h3>Existing caregivers</h3>
+  {% if caregivers %}
+  <ul class="list">
+    {% for c in caregivers %}
+      <li><strong>{{ c.email }}</strong> <span class="pill">{{ c.role }}</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    <p class="muted">No caregivers yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

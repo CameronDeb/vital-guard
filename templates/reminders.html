@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card glow fade-in-up">
+  <h2>Reminders</h2>
+  <form method="post" class="form">
+    <div class="grid-2">
+      <label>Title <input name="title" placeholder="e.g., Take Metformin"></label>
+      <label>Type
+        <select name="kind">
+          <option value="medication">Medication</option>
+          <option value="appointment">Appointment</option>
+          <option value="general" selected>General</option>
+        </select>
+      </label>
+      <label>Due at (local) <input name="due_at" placeholder="YYYY-MM-DD HH:MM (24h)"></label>
+      <label>Notify before (min) <input name="pre_notify_min" type="number" min="0" placeholder="e.g., 30"></label>
+      <label>Notes <input name="notes" placeholder="Optional"></label>
+    </div>
+    <button class="btn" type="submit">Add reminder</button>
+  </form>
+</section>
+
+<section class="card glow fade-in-up">
+  <h3>All reminders</h3>
+  {% if items %}
+  <ul class="list list-separated">
+    {% for r in items %}
+      <li class="rem">
+        <div>
+          <span class="pill {{ r.kind }}">{{ r.kind }}</span>
+          <strong>{{ r.title }}</strong>
+          <span class="muted">{{ r.due_local }}</span>
+          <div class="muted small">Notify {{ r.pre_notify_min }} min before</div>
+          {% if r.notes %}<div class="muted small">{{ r.notes }}</div>{% endif %}
+          {% if r.sent_at %}<div class="muted small">Sent at {{ r.sent_at }}</div>{% endif %}
+        </div>
+        <form method="post" action="{{ url_for('delete_reminder', rid=r.id) }}">
+          <button class="btn btn-ghost danger">Delete</button>
+        </form>
+      </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    <p class="muted">No reminders yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

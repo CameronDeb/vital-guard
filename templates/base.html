@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vital Guard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+  <script src="https://js.stripe.com/v3/"></script>
+</head>
+<body>
+  <div class="background-wrapper"></div>
+  <header class="site-header fade-in-down">
+    <a href="{{ url_for('index') }}" class="brand" style="text-decoration: none;">
+      <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="Vital Guard logo" width="32" height="32">
+      <span>Vital Guard</span>
+    </a>
+    <nav class="nav">
+      <a href="{{ url_for('index') }}">Dashboard</a>
+      {% if current_user.is_authenticated %}
+        <a href="{{ url_for('assistant') }}">AI Assistant</a>
+        <a href="{{ url_for('profile') }}">Profile</a>
+        <a href="{{ url_for('reminders') }}">Reminders</a>
+        <a href="{{ url_for('care_team') }}">Care Team</a>
+        <a href="{{ url_for('billing') }}" class="accent">Billing</a>
+        <a href="{{ url_for('logout') }}">Logout</a>
+      {% else %}
+        <a href="{{ url_for('login') }}" class="accent">Login</a>
+        <a href="{{ url_for('register') }}">Register</a>
+      {% endif %}
+    </nav>
+  </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-wrap">
+        {% for category, message in messages %}
+          <div class="flash {{ category }} fade-in-down">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <p>&copy; 2025 Vital Guard. All rights reserved.</p>
+    <p class="muted small">Educational support only. Not a medical diagnosis. Seek professional care for urgent concerns.</p>
+  </footer>
+</body>
+</html>

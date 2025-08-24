@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card glow fade-in-up">
+  <h2>Symptom checker</h2>
+  <p class="muted small">Describe your symptoms in your own words. We’ll triage with safe guidelines.</p>
+  <div class="form">
+    <label>Symptoms <textarea id="symptoms" rows="4" placeholder="e.g., fever and sore throat for 2 days"></textarea></label>
+    <button id="checkBtn" class="btn">Check now</button>
+  </div>
+  <div id="result" class="result hide">
+    <div class="triage">
+      <span class="badge" id="urgencyBadge">low</span>
+      <h3>Suggested specialty: <span id="spec">primary care</span></h3>
+      <ul id="adviceList"></ul>
+      <h4>Lifestyle tips</h4>
+      <ul id="lifeList"></ul>
+      <p class="muted small" id="disc"></p>
+    </div>
+  </div>
+</section>
+
+<section class="card glow fade-in-up">
+  <h3>AI Health Coach</h3>
+  <p class="muted small">Generate a 7-day plan using your profile, goals, diet preferences, and limits.</p>
+  <div class="form">
+    <label>Update goals (optional) <input id="coachGoals" placeholder="e.g., walk 6k steps/day, reduce sodium"></label>
+    <button id="coachBtn" class="btn">Generate plan</button>
+  </div>
+  <pre id="coachOut" class="muted small"></pre>
+</section>
+
+<script defer src="{{ url_for('static', filename='js/symptom.js') }}"></script>
+{% endblock %}

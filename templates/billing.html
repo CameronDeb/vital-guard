@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="card glow fade-in-up">
+  <h2>Billing</h2>
+  {% if is_configured %}
+    <p class="muted">Subscribe to Vital Guard Pro.</p>
+    <button class="btn" id="buyBtn">Subscribe</button>
+    <div id="status" class="muted small"></div>
+    <script>
+      window.STRIPE_KEY="{{ stripe_public }}"; window.PRICE_ID="{{ price_id }}";
+    </script>
+    <script defer src="{{ url_for('static', filename='js/billing.js') }}"></script>
+  {% else %}
+    <p class="muted">Stripe not configured. Add STRIPE_PUBLIC_KEY, STRIPE_SECRET_KEY, STRIPE_PRICE_ID in .env.</p>
+  {% endif %}
+</section>
+{% endblock %}
