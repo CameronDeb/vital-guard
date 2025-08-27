@@ -24,20 +24,20 @@ document.addEventListener("DOMContentLoaded", () => {
       const resp = await fetch("/api/health-assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symptoms: symptoms, query: "" }), // Query is empty for now, can be expanded later
+        body: JSON.stringify({ symptoms: symptoms, query: "" }),
       });
 
-      if (!resp.ok) {
-        const errorData = await resp.json();
-        throw new Error(errorData.error || "An unknown error occurred.");
+      const data = await resp.json(); // Always try to parse the JSON body
+
+      if (!resp.ok) { // Check if the HTTP status is not successful (e.g., 500)
+        throw new Error(data.error || "An unknown server error occurred.");
       }
-      
-      const data = await resp.json();
       
       renderResults(data);
 
     } catch (e) {
-      alert(`Error: ${e.message}`);
+      // This will now show the specific error from OpenAI in an alert
+      alert(`An error occurred: ${e.message}`);
     } finally {
       btn.disabled = false;
       btn.textContent = "Get AI Guidance";

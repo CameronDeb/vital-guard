@@ -1,7 +1,13 @@
 import os, json, smtplib, hmac, hashlib
 from email.mime.text import MIMEText
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pytz
+import logging # Import the logging library
+
+# ---- VITAL FIX: LOAD .env FILE ----
+from dotenv import load_dotenv
+load_dotenv()
+# ------------------------------------
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, abort, send_file, Response
 from flask_sqlalchemy import SQLAlchemy
@@ -17,14 +23,13 @@ if USE_OPENAI:
     try:
         from openai import OpenAI
         client = OpenAI(api_key=OPENAI_API_KEY)
-    except Exception:
-        try:
-            import openai
-            openai.api_key = OPENAI_API_KEY
-            client = "legacy"
-        except Exception:
-            client = None
-            USE_OPENAI = False
+    except Exception as e:
+        print(f"❌ CRITICAL ERROR: Failed to initialize OpenAI client: {e}")
+        client = None
+        USE_OPENAI = False
+else:
+    print("ℹ️ INFO: USE_OPENAI is False. Running in non-AI mode.")
+
 
 # Optional Twilio
 TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
@@ -51,6 +56,9 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL","sqlite:///app.
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["APP_TZ"] = os.getenv("APP_TZ","UTC")
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
@@ -60,7 +68,7 @@ class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(200), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     is_pro = db.Column(db.Boolean, default=False)
 
 class Profile(db.Model):
@@ -104,7 +112,7 @@ class CareTeam(db.Model):
 class Plan(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     kind = db.Column(db.String(50), default="coach")  # coach|visit_prep
     content = db.Column(db.Text, default="")
 
@@ -184,7 +192,7 @@ def send_sms(to_phone: str, body: str):
 # ---------------- Scheduler ----------------
 def process_due_reminders():
     with app.app_context():
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         pending = Reminder.query.filter(Reminder.sent_at.is_(None)).all()
         for r in pending:
             due = r.due_at
@@ -349,6 +357,9 @@ def api_health_assistant():
     # Use the new comprehensive AI function
     if USE_OPENAI and client:
         result = ai_health_assistant(symptoms, prof, user_query)
+        # NEW: Check if the result is an error and return it to the front end
+        if "error" in result:
+            return jsonify(result), 500
     else:
         result = heuristic_triage(symptoms, prof)
 
@@ -496,11 +507,11 @@ User's Health Profile: {ctx}
                 model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
                 messages=[{"role": "system", "content": "You are a helpful assistant that only returns valid JSON."},
                           {"role": "user", "content": prompt}],
-                temperature=0.2,
-                response_format={"type": "json_object"}
+                temperature=0.2
             )
             content = resp.choices[0].message.content.strip()
         else:
+            # This part is for the older openai library version, just in case
             import openai
             resp = openai.ChatCompletion.create(
                 model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
@@ -508,7 +519,7 @@ User's Health Profile: {ctx}
                           {"role": "user", "content": prompt}],
                 temperature=0.2,
             )
-            content = resp["choices"][0]["message"]["content"].strip()
+            content = resp["choices[0]"]["message"]["content"].strip()
 
         data = json.loads(content)
         data.setdefault("disclaimer", "Educational support only. Not a medical diagnosis. Seek professional care for urgent concerns.")
@@ -523,8 +534,9 @@ User's Health Profile: {ctx}
         return data
 
     except Exception as e:
-        # Fallback to heuristic if AI fails
-        return heuristic_triage(symptom_text, profile)
+        # NEW DEBUGGING STEP: Return the error message itself
+        app.logger.error(f"AI call failed: {e}")
+        return {"error": str(e)}
 
 
 if __name__=="__main__":
