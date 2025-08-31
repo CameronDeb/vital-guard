@@ -1,3 +1,5 @@
+console.log("🔍 Assistant JS loaded");
+
 document.addEventListener("DOMContentLoaded", () => {
   const btn = document.getElementById("checkBtn");
   const area = document.getElementById("symptoms");
@@ -10,76 +12,113 @@ document.addEventListener("DOMContentLoaded", () => {
   const doctorSearch = document.getElementById("doctorSearch");
   const doctorLink = document.getElementById("doctorLink");
 
+  console.log("Elements check:", {
+    btn: !!btn,
+    area: !!area,
+    result: !!result
+  });
+
+  if (!btn || !area) {
+    console.error("❌ Required elements missing!");
+    return;
+  }
+
   btn.addEventListener("click", async () => {
-    const symptoms = (area.value || "").trim();
+    console.log("🔥 Button clicked!");
+    
+    const symptoms = area.value.trim();
+    console.log("Symptoms:", symptoms);
+    
     if (!symptoms) {
-      area.focus();
+      alert("Please enter your symptoms");
       return;
     }
+    
     btn.disabled = true;
     btn.textContent = "Analyzing...";
-    result.classList.add("hide");
-
+    
     try {
-      const resp = await fetch("/api/health-assistant", {
+      console.log("🚀 Making fetch request...");
+      
+      const response = await fetch("/api/health-assistant", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symptoms: symptoms, query: "" }),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          symptoms: symptoms
+        })
       });
-
-      const data = await resp.json(); // Always try to parse the JSON body
-
-      if (!resp.ok) { // Check if the HTTP status is not successful (e.g., 500)
-        throw new Error(data.error || "An unknown server error occurred.");
+      
+      console.log("Response status:", response.status);
+      console.log("Response ok:", response.ok);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
       
-      renderResults(data);
-
-    } catch (e) {
-      // This will now show the specific error from OpenAI in an alert
-      alert(`An error occurred: ${e.message}`);
+      const data = await response.json();
+      console.log("✅ Got response:", data);
+      
+      // Show results
+      if (result) {
+        result.classList.remove("hide");
+        
+        if (badge) badge.textContent = (data.urgency || "low").toUpperCase();
+        if (spec) spec.textContent = data.suggested_specialty || "Primary Care";
+        if (disc) disc.textContent = data.disclaimer || "Educational only";
+        
+        // Clear and populate advice
+        if (adviceList) {
+          adviceList.innerHTML = "";
+          (data.advice || []).forEach(advice => {
+            const li = document.createElement("li");
+            li.textContent = advice;
+            adviceList.appendChild(li);
+          });
+        }
+        
+        // Clear and populate lifestyle
+        if (lifeList) {
+          lifeList.innerHTML = "";
+          (data.lifestyle || []).forEach(tip => {
+            const li = document.createElement("li");
+            li.textContent = tip;
+            lifeList.appendChild(li);
+          });
+        }
+        
+        // Doctor search link
+        if (doctorSearch && doctorLink && data.google_search_link) {
+          doctorSearch.classList.remove("hide");
+          doctorLink.href = data.google_search_link;
+        } else if (doctorSearch) {
+          doctorSearch.classList.add("hide");
+        }
+        
+        // Style urgency badge
+        if (badge) {
+          badge.style.background = data.urgency === "emergency" ? "#dc2626" :
+                                   data.urgency === "high" ? "#ea580c" :
+                                   data.urgency === "medium" ? "#d97706" : "#059669";
+          badge.style.color = "#ffffff";
+        }
+      }
+      
+    } catch (error) {
+      console.error("❌ Error:", error);
+      alert(`Error: ${error.message}`);
+      
+      if (result) {
+        result.classList.remove("hide");
+        result.innerHTML = `<div style="color: red; padding: 20px;">
+          Error: ${error.message}<br>
+          Check the console for more details.
+        </div>`;
+      }
     } finally {
       btn.disabled = false;
       btn.textContent = "Get AI Guidance";
     }
   });
-
-  function renderResults(data) {
-    result.classList.remove("hide");
-    adviceList.innerHTML = "";
-    lifeList.innerHTML = "";
-
-    badge.textContent = data.urgency || "low";
-    spec.textContent = data.suggested_specialty || "Primary Care";
-    disc.textContent = data.disclaimer || "";
-
-    (data.advice || []).forEach(a => {
-      const li = document.createElement("li");
-      li.textContent = a;
-      adviceList.appendChild(li);
-    });
-
-    (data.lifestyle || []).forEach(a => {
-      const li = document.createElement("li");
-      li.textContent = a;
-      lifeList.appendChild(li);
-    });
-
-    if (data.google_search_link) {
-        doctorSearch.classList.remove("hide");
-        doctorLink.href = data.google_search_link;
-    } else {
-        doctorSearch.classList.add("hide");
-    }
-
-    // Style badge based on urgency
-    badge.style.background = "var(--accent)"; // default
-    if (data.urgency === "emergency") {
-      badge.style.background = "#b91c1c";
-    } else if (data.urgency === "high") {
-      badge.style.background = "#f97316";
-    } else if (data.urgency === "medium") {
-        badge.style.background = "#f59e0b";
-    }
-  }
 });

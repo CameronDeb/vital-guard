@@ -13,18 +13,52 @@
       <label>Emergency contact <input name="emergency_contact" value="{{ profile.emergency_contact if profile else '' }}"></label>
       <label>Phone (for SMS) <input name="phone" value="{{ profile.phone if profile else '' }}" placeholder="+15555555555"></label>
       <label style="display:flex; align-items:center; gap:14px; padding-top:22px;">
-        <span><input type="checkbox" name="notify_email" {% if profile.notify_email %}checked{% endif %}> Email reminders</span>
-        <span><input type="checkbox" name="notify_sms" {% if profile.notify_sms %}checked{% endif %}> SMS reminders</span>
+        <span><input type="checkbox" name="notify_email" {% if profile and profile.notify_email %}checked{% endif %}> Email reminders</span>
+        <span><input type="checkbox" name="notify_sms" {% if profile and profile.notify_sms %}checked{% endif %}> SMS reminders</span>
       </label>
     </div>
-    <label>Conditions <textarea name="conditions" rows="2">{{ profile.conditions if profile else '' }}</textarea></label>
-    <label>Allergies <textarea name="allergies" rows="2">{{ profile.allergies if profile else '' }}</textarea></label>
-    <label>Medications <textarea name="medications" rows="2">{{ profile.medications if profile else '' }}</textarea></label>
-    <label>Goals <textarea name="goals" rows="2" placeholder="e.g., lose 10 lbs safely, control BP">{{ profile.goals if profile else '' }}</textarea></label>
-    <label>Diet preferences <textarea name="diet_prefs" rows="2" placeholder="e.g., vegetarian, low sodium">{{ profile.diet_prefs if profile else '' }}</textarea></label>
-    <label>Activity limits <textarea name="activity_limits" rows="2" placeholder="e.g., knee pain; avoid high-impact">{{ profile.activity_limits if profile else '' }}</textarea></label>
-    <label>Notes <textarea name="notes" rows="2" placeholder="anything else">{{ profile.notes if profile else '' }}</textarea></label>
-    <button class="btn" type="submit">Save profile</button>
+    
+    <label>Medical conditions <textarea name="conditions" rows="2" placeholder="e.g., Type 2 diabetes, hypertension">{{ profile.conditions if profile else '' }}</textarea></label>
+    <label>Allergies <textarea name="allergies" rows="2" placeholder="e.g., penicillin, shellfish, peanuts">{{ profile.allergies if profile else '' }}</textarea></label>
+    <label>Current medications <textarea name="medications" rows="2" placeholder="e.g., Metformin 500mg twice daily, Lisinopril 10mg once daily">{{ profile.medications if profile else '' }}</textarea></label>
+    
+    <label>Family history <textarea name="family_history" rows="3" placeholder="e.g., Father: heart disease at 65, diabetes. Mother: breast cancer at 58, high blood pressure. Grandparents: stroke, Alzheimer's">{{ profile.family_history if profile else '' }}</textarea></label>
+    
+    <label>Health goals <textarea name="goals" rows="2" placeholder="e.g., lose 10 lbs safely, control BP, walk 6k steps/day">{{ profile.goals if profile else '' }}</textarea></label>
+    <label>Diet preferences <textarea name="diet_prefs" rows="2" placeholder="e.g., vegetarian, low sodium, Mediterranean diet">{{ profile.diet_prefs if profile else '' }}</textarea></label>
+    <label>Activity limits <textarea name="activity_limits" rows="2" placeholder="e.g., knee pain; avoid high-impact exercises, back issues">{{ profile.activity_limits if profile else '' }}</textarea></label>
+    <label>Additional notes <textarea name="notes" rows="2" placeholder="Any other health information you'd like to track">{{ profile.notes if profile else '' }}</textarea></label>
+    
+    <button type="submit" class="btn">Save Profile</button>
   </form>
+</section>
+
+<section class="card glow fade-in-up delay-1">
+  <h3>Profile Summary</h3>
+  {% if profile %}
+    <div class="grid-2">
+      <div>
+        <h4>Basic Info</h4>
+        <ul class="list">
+          <li><strong>Age:</strong> {{ profile.age or 'Not specified' }}</li>
+          <li><strong>Gender:</strong> {{ profile.gender or 'Not specified' }}</li>
+          {% if profile.weight_kg and profile.height_cm %}
+            {% set bmi = (profile.weight_kg / ((profile.height_cm / 100) ** 2)) | round(1) %}
+            <li><strong>BMI:</strong> {{ bmi }}</li>
+          {% endif %}
+        </ul>
+      </div>
+      <div>
+        <h4>Health Status</h4>
+        <ul class="list">
+          <li><strong>Conditions:</strong> {{ profile.conditions or 'None listed' }}</li>
+          <li><strong>Allergies:</strong> {{ profile.allergies or 'None listed' }}</li>
+          <li><strong>Family History:</strong> {{ profile.family_history[:100] + '...' if profile.family_history and profile.family_history|length > 100 else (profile.family_history or 'None listed') }}</li>
+        </ul>
+      </div>
+    </div>
+  {% else %}
+    <p class="muted">Complete your profile above to see a summary.</p>
+  {% endif %}
 </section>
 {% endblock %}

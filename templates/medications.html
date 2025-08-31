@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% if refill_alerts %}
+<section class="card fade-in-up" style="background: linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%); border-left: 4px solid #f59e0b;">
+  <h3 style="margin-top: 0; color: #92400e;">⚠️ Refill Alerts</h3>
+  {% for alert in refill_alerts %}
+    <div style="background: rgba(255,255,255,0.7); padding: 12px; border-radius: 8px; margin-bottom: 8px;">
+      <strong>{{ alert.medication.name }}</strong> 
+      {% if alert.is_overdue %}
+        <span style="color: #dc2626; font-weight: bold;">- OVERDUE by {{ alert.days_until|abs }} days</span>
+      {% else %}
+        <span style="color: #d97706;">- refill needed in {{ alert.days_until }} days</span>
+      {% endif %}
+    </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section class="card glow fade-in-up">
+  <h2>💊 Medication Tracker</h2>
+  <p class="muted small">Track your medications, dosages, and refill dates to stay on top of your health.</p>
+  
+  <form method="post" class="form">
+    <div class="grid-2">
+      <label>Medication name * <input name="name" placeholder="e.g., Metformin" required></label>
+      <label>Dosage <input name="dosage" placeholder="e.g., 500mg"></label>
+      <label>Frequency <input name="frequency" placeholder="e.g., Twice daily"></label>
+      <label>Prescribed by <input name="prescribed_by" placeholder="e.g., Dr. Smith"></label>
+      <label>Condition <input name="condition_for" placeholder="e.g., Type 2 Diabetes"></label>
+      <label>Pills remaining <input name="pills_remaining" type="number" placeholder="e.g., 30"></label>
+    </div>
+    
+    <div class="grid-2">
+      <label>Start date * <input name="start_date" type="date" required></label>
+      <label>End date (optional) <input name="end_date" type="date"></label>
+      <label>Next refill date <input name="refill_date" type="date"></label>
+      <label></label> <!-- Empty cell for spacing -->
+    </div>
+    
+    <label>Notes <input name="notes" placeholder="e.g., Take with food, causes drowsiness"></label>
+    <button class="btn">Add Medication</button>
+  </form>
+</section>
+
+<section class="card glow fade-in-up delay-1">
+  <h3>Current Medications</h3>
+  {% if medications %}
+    <div class="medication-grid">
+      {% for med in medications %}
+        <div class="medication-card" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px; position: relative;">
+          <div style="display: flex; justify-content: between; align-items: start; margin-bottom: 8px;">
+            <h4 style="margin: 0; color: #1e293b;">{{ med.name }}</h4>
+            <div style="display: flex; gap: 8px;">
+              <form method="post" action="{{ url_for('toggle_medication', mid=med.id) }}" style="display: inline;">
+                <button class="btn btn-ghost" style="padding: 4px 8px; font-size: 12px;">
+                  {{ 'Deactivate' if med.active else 'Activate' }}
+                </button>
+              </form>
+              <form method="post" action="{{ url_for('delete_medication', mid=med.id) }}" style="display: inline;" onsubmit="return confirm('Delete this medication?')">
+                <button class="btn btn-ghost" style="padding: 4px 8px; font-size: 12px; color: #dc2626;">Delete</button>
+              </form>
+            </div>
+          </div>
+          
+          <div class="medication-details" style="font-size: 14px; color: #64748b;">
+            {% if med.dosage %}
+              <div><strong>Dosage:</strong> {{ med.dosage }}</div>
+            {% endif %}
+            {% if med.frequency %}
+              <div><strong>Frequency:</strong> {{ med.frequency }}</div>
+            {% endif %}
+            {% if med.prescribed_by %}
+              <div><strong>Prescribed by:</strong> {{ med.prescribed_by }}</div>
+            {% endif %}
+            {% if med.condition_for %}
+              <div><strong>For:</strong> {{ med.condition_for }}</div>
+            {% endif %}
+            
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0;">
+              <div><strong>Started:</strong> {{ med.start_date.strftime('%b %d, %Y') }}</div>
+              {% if med.end_date %}
+                <div><strong>Ends:</strong> {{ med.end_date.strftime('%b %d, %Y') }}</div>
+              {% else %}
+                <div><strong>Status:</strong> <span style="color: #059669;">Ongoing</span></div>
+              {% endif %}
+              
+              {% if med.refill_date %}
+                <div><strong>Next refill:</strong> 
+                  {% set days_until = (med.refill_date - (moment().date() if moment else '2024-01-01'|as_datetime.date)) %}
+                  {% if days_until.days < 0 %}
+                    <span style="color: #dc2626;">{{ med.refill_date.strftime('%b %d, %Y') }} (OVERDUE)</span>
+                  {% elif days_until.days <= 7 %}
+                    <span style="color: #f59e0b;">{{ med.refill_date.strftime('%b %d, %Y') }} ({{ days_until.days }} days)</span>
+                  {% else %}
+                    <span>{{ med.refill_date.strftime('%b %d, %Y') }}</span>
+                  {% endif %}
+                </div>
+              {% endif %}
+              
+              {% if med.pills_remaining %}
+                <div><strong>Pills remaining:</strong> {{ med.pills_remaining }}</div>
+              {% endif %}
+            </div>
+            
+            {% if med.notes %}
+              <div style="margin-top: 8px; padding: 8px; background: #f1f5f9; border-radius: 6px; font-style: italic;">
+                "{{ med.notes }}"
+              </div>
+            {% endif %}
+          </div>
+          
+          {% if not med.active %}
+            <div style="position: absolute; top: 8px; right: 8px; background: #64748b; color: white; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: bold;">
+              INACTIVE
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="muted">No medications added yet. Add your first medication above to start tracking.</p>
+  {% endif %}
+</section>
+
+<section class="card fade-in-up delay-2" style="background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); border: none;">
+  <h3 style="margin-top: 0; color: #1e40af;">💡 Medication Management Tips</h3>
+  <ul style="color: #1e40af; margin: 0;">
+    <li><strong>Set up refill reminders</strong> - Track when you need to refill prescriptions</li>
+    <li><strong>Take photos</strong> - Keep pictures of medication bottles for reference</li>
+    <li><strong>Pill organizers</strong> - Use weekly pill organizers for complex regimens</li>
+    <li><strong>Doctor visits</strong> - Bring this list to all medical appointments</li>
+    <li><strong>Emergency info</strong> - Share critical medications with emergency contacts</li>
+  </ul>
+</section>
+{% endblock %}

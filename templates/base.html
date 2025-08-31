@@ -23,9 +23,10 @@
       {% if current_user.is_authenticated %}
         <a href="{{ url_for('assistant') }}">AI Assistant</a>
         <a href="{{ url_for('profile') }}">Profile</a>
+        <a href="{{ url_for('medications') }}">Medications</a>
         <a href="{{ url_for('reminders') }}">Reminders</a>
         <a href="{{ url_for('care_team') }}">Care Team</a>
-        <a href="{{ url_for('billing') }}" class="accent">Billing</a>
+        <a href="{{ url_for('export') }}" style="color: #059669;">Export Data</a>
         <a href="{{ url_for('logout') }}">Logout</a>
       {% else %}
         <a href="{{ url_for('login') }}" class="accent">Login</a>

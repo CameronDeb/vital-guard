@@ -1,38 +1,63 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="card glow fade-in-up">
-  <h2>AI Health Assistant</h2>
-  <p class="muted small">Describe your symptoms or ask a health question. Your AI assistant will provide guidance based on your health profile.</p>
+  <h2>🤖 AI Health Assistant</h2>
+  <p class="muted small">Describe your symptoms or ask a health question. Your AI assistant will provide personalized guidance based on your health profile.</p>
+  
   <div class="form">
     <label for="symptoms">How are you feeling today?</label>
-    <textarea id="symptoms" rows="4" placeholder="Example: I've had a persistent cough and a slight fever for three days. What should I do?"></textarea>
-    <button id="checkBtn" class="btn">Get AI Guidance</button>
-  </div>
-  <div id="result" class="result hide">
-    <div class="triage">
-      <h3>Assessment</h3>
-      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
-        <span class="badge" id="urgencyBadge">low</span>
-        <div>
-          <strong>Suggested Specialty:</strong> <span id="spec">Primary Care</span>
-        </div>
-      </div>
-
-      <h4>Recommended Actions</h4>
-      <ul id="adviceList"></ul>
-
-      <h4>Lifestyle & Wellness Tips</h4>
-      <ul id="lifeList"></ul>
-      
-      <div id="doctorSearch" class="hide" style="margin-top: 20px;">
-        <h4>Find a Specialist</h4>
-        <p class="muted small">Here is a link to help you find a relevant specialist in your area.</p>
-        <a id="doctorLink" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-ghost">Search for Doctors</a>
-      </div>
-
-      <p class="muted small" id="disc" style="margin-top: 24px; border-top: 1px dashed var(--border); padding-top: 16px;"></p>
+    <textarea 
+      id="symptoms" 
+      rows="4" 
+      placeholder="Example: I've had a persistent cough and slight fever for three days. I also feel tired and have some body aches. What should I do?"
+      style="min-height: 80px; resize: vertical;"
+    ></textarea>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+      <small class="muted">💡 Tip: Press Ctrl/Cmd + Enter to submit</small>
+      <button id="checkBtn" class="btn">Get AI Guidance</button>
     </div>
   </div>
+
+  <div id="result" class="result hide" style="margin-top: 32px;">
+    <div class="triage">
+      <h3 style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+        <span>Assessment Results</span>
+        <span class="badge" id="urgencyBadge">low</span>
+      </h3>
+      
+      <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid var(--accent);">
+        <strong>🏥 Suggested Specialty:</strong> <span id="spec">Primary Care</span>
+      </div>
+
+      <h4>📋 Recommended Actions</h4>
+      <ul id="adviceList" style="background: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 20px;"></ul>
+
+      <h4>🌟 Lifestyle & Wellness Tips</h4>
+      <ul id="lifeList" style="background: #f0fdf4; padding: 16px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #22c55e;"></ul>
+      
+      <div id="doctorSearch" class="hide" style="margin-top: 24px; padding: 16px; background: #eff6ff; border-radius: 8px; border-left: 4px solid #3b82f6;">
+        <h4>🔍 Find a Specialist</h4>
+        <p class="muted small">Based on your symptoms, here's a search to help you find a relevant specialist in your area:</p>
+        <a id="doctorLink" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-ghost" style="margin-top: 8px;">
+          🌐 Search for Doctors
+        </a>
+      </div>
+
+      <div style="margin-top: 24px; padding: 16px; background: #fefce8; border-radius: 8px; border-left: 4px solid #eab308;">
+        <p class="muted small" id="disc" style="margin: 0; font-style: italic;">⚠️ This is educational information only and not a medical diagnosis. Always consult healthcare professionals for medical advice.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- AI Status Indicator -->
+<section class="card fade-in-up delay-1" style="text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+  <h3 style="margin-top: 0; color: white;">🧠 AI-Powered Analysis</h3>
+  {% if openai_configured %}
+    <p style="margin-bottom: 0; opacity: 0.9;">✅ Advanced AI analysis enabled</p>
+  {% else %}
+    <p style="margin-bottom: 0; opacity: 0.9;">⚙️ Using intelligent heuristic analysis (configure OpenAI for enhanced AI features)</p>
+  {% endif %}
 </section>
 
 <script src="{{ url_for('static', filename='js/assistant.js') }}"></script>

@@ -1,74 +1,55 @@
-import os, json, smtplib, hmac, hashlib
-from email.mime.text import MIMEText
-from datetime import datetime, timedelta, timezone
+import os, json, sqlite3
+from datetime import datetime, timedelta
 import pytz
-import logging # Import the logging library
-
-# ---- VITAL FIX: LOAD .env FILE ----
-from dotenv import load_dotenv
-load_dotenv()
-# ------------------------------------
-
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, abort, send_file, Response
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# Optional libs
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-USE_OPENAI = bool(OPENAI_API_KEY)
-client = None
-if USE_OPENAI:
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=OPENAI_API_KEY)
-    except Exception as e:
-        print(f"❌ CRITICAL ERROR: Failed to initialize OpenAI client: {e}")
-        client = None
-        USE_OPENAI = False
-else:
-    print("ℹ️ INFO: USE_OPENAI is False. Running in non-AI mode.")
-
-
-# Optional Twilio
-TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-TWILIO_FROM = os.getenv("TWILIO_FROM")
-try:
-    from twilio.rest import Client as TwilioClient
-    twilio_client = TwilioClient(TWILIO_SID, TWILIO_TOKEN) if (TWILIO_SID and TWILIO_TOKEN) else None
-except Exception:
-    twilio_client = None
-
-# Optional Stripe
-import stripe as _stripe
-STRIPE_SECRET = os.getenv("STRIPE_SECRET_KEY")
-STRIPE_PUBLIC = os.getenv("STRIPE_PUBLIC_KEY")
-STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
-if STRIPE_SECRET:
-    _stripe.api_key = STRIPE_SECRET
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY","dev-secret")
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL","sqlite:///app.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["APP_TZ"] = os.getenv("APP_TZ","UTC")
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 
-# ---------------- Models ----------------
+# OpenAI Setup
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+USE_OPENAI = bool(OPENAI_API_KEY and OPENAI_API_KEY.startswith(('sk-', 'sk-proj-')))
+client = None
+
+print(f"OpenAI Key: {'Found' if OPENAI_API_KEY else 'Missing'}")
+
+if USE_OPENAI:
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        # Test call
+        test_resp = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=5
+        )
+        print("OpenAI working!")
+        USE_OPENAI = True
+    except Exception as e:
+        print(f"OpenAI failed: {e}")
+        USE_OPENAI = False
+        client = None
+
+# Models
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(200), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
     is_pro = db.Column(db.Boolean, default=False)
 
 class Profile(db.Model):
@@ -82,24 +63,24 @@ class Profile(db.Model):
     conditions = db.Column(db.Text, default="")
     allergies = db.Column(db.Text, default="")
     medications = db.Column(db.Text, default="")
+    family_history = db.Column(db.Text, default="")
     emergency_contact = db.Column(db.String(200), default="")
     phone = db.Column(db.String(32), default="")
     notify_email = db.Column(db.Boolean, default=True)
     notify_sms = db.Column(db.Boolean, default=False)
-    tz = db.Column(db.String(64), default=os.getenv("APP_TZ","UTC"))
-    # Preferences / knowledge profile for AI
-    goals = db.Column(db.Text, default="")        # e.g., "lose 10 lbs safely", "walk 6k steps/day"
-    diet_prefs = db.Column(db.Text, default="")   # e.g., "vegetarian", "low sodium"
-    activity_limits = db.Column(db.Text, default="") # e.g., "knee pain; avoid high impact"
-    notes = db.Column(db.Text, default="")        # general notes
+    tz = db.Column(db.String(64), default="UTC")
+    goals = db.Column(db.Text, default="")
+    diet_prefs = db.Column(db.Text, default="")
+    activity_limits = db.Column(db.Text, default="")
+    notes = db.Column(db.Text, default="")
 
 class Reminder(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
     title = db.Column(db.String(200), nullable=False)
     kind = db.Column(db.String(50), default="general")
-    due_at = db.Column(db.DateTime, nullable=False, index=True)  # stored in UTC
-    pre_notify_min = db.Column(db.Integer, default=0)  # minutes before due_at to notify
+    due_at = db.Column(db.DateTime, nullable=False, index=True)
+    pre_notify_min = db.Column(db.Integer, default=0)
     notes = db.Column(db.Text, default="")
     sent_at = db.Column(db.DateTime, nullable=True)
 
@@ -107,28 +88,78 @@ class CareTeam(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     patient_id = db.Column(db.Integer, db.ForeignKey("user.id"), index=True, nullable=False)
     caregiver_id = db.Column(db.Integer, db.ForeignKey("user.id"), index=True, nullable=False)
-    role = db.Column(db.String(50), default="viewer")  # viewer|editor
+    role = db.Column(db.String(50), default="viewer")
 
 class Plan(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    kind = db.Column(db.String(50), default="coach")  # coach|visit_prep
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    kind = db.Column(db.String(50), default="coach")
     content = db.Column(db.Text, default="")
 
-# ---------------- Helpers ----------------
+class Medication(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    name = db.Column(db.String(200), nullable=False)
+    dosage = db.Column(db.String(100), default="")
+    frequency = db.Column(db.String(100), default="")
+    prescribed_by = db.Column(db.String(200), default="")
+    condition_for = db.Column(db.String(200), default="")
+    start_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date, nullable=True)
+    refill_date = db.Column(db.Date, nullable=True)
+    pills_remaining = db.Column(db.Integer, nullable=True)
+    notes = db.Column(db.Text, default="")
+    active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 @login_manager.user_loader
-def load_user(uid): return User.query.get(int(uid))
+def load_user(uid): 
+    return db.session.get(User, int(uid))
 
 def bootstrap_db():
-    with app.app_context(): db.create_all()
+    """Initialize database - only run once per app start"""
+    with app.app_context():
+        db_path = app.config["SQLALCHEMY_DATABASE_URI"].replace("sqlite:///", "")
+        db_abs_path = os.path.abspath(db_path)
+        
+        # Check if we need to reset database
+        needs_reset = False
+        if os.path.exists(db_abs_path):
+            try:
+                # Test if database has correct schema
+                conn = sqlite3.connect(db_abs_path)
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA table_info(profile)")
+                columns = [col[1] for col in cursor.fetchall()]
+                if 'family_history' not in columns:
+                    needs_reset = True
+                    print("Database schema outdated - needs reset")
+                conn.close()
+            except Exception as e:
+                needs_reset = True
+                print(f"Database error - needs reset: {e}")
+        
+        if needs_reset:
+            print("Deleting old database...")
+            try:
+                os.remove(db_abs_path)
+            except Exception as e:
+                print(f"Could not delete database: {e}")
+        
+        if not os.path.exists(db_abs_path):
+            print("Creating fresh database...")
+            db.create_all()
+            print(f"Created database at: {db_abs_path}")
+        else:
+            print("Database already exists with correct schema")
 
 def user_tz():
-    tzname = None
+    tzname = "UTC"
     if current_user.is_authenticated:
         p = Profile.query.filter_by(user_id=current_user.id).first()
-        if p and p.tz: tzname = p.tz
-    if not tzname: tzname = app.config["APP_TZ"]
+        if p and p.tz: 
+            tzname = p.tz
     try:
         return pytz.timezone(tzname)
     except Exception:
@@ -142,139 +173,187 @@ def utc_to_local(dt_utc, tz):
 
 def parse_local_datetime(s, tz):
     try:
-        # "YYYY-MM-DD HH:MM"
         dt = datetime.strptime(s, "%Y-%m-%d %H:%M")
         return local_to_utc(dt, tz)
     except Exception:
         return None
 
-def build_ai_context(profile: Profile):
+def parse_date(s):
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+def build_profile_context(profile):
     if not profile:
-        return "No profile on file."
-    ctx = {
-        "name": profile.name,
-        "age": profile.age,
-        "gender": profile.gender,
-        "weight_kg": profile.weight_kg,
-        "height_cm": profile.height_cm,
-        "conditions": profile.conditions,
-        "allergies": profile.allergies,
-        "medications": profile.medications,
-        "goals": profile.goals,
-        "diet_prefs": profile.diet_prefs,
-        "activity_limits": profile.activity_limits,
-        "notes": profile.notes,
-    }
-    return json.dumps(ctx, ensure_ascii=False)
+        return "No profile available"
+    
+    parts = []
+    if profile.age: parts.append(f"Age: {profile.age}")
+    if profile.gender: parts.append(f"Gender: {profile.gender}")
+    if profile.conditions: parts.append(f"Medical conditions: {profile.conditions}")
+    if profile.allergies: parts.append(f"Allergies: {profile.allergies}")
+    if profile.medications: parts.append(f"Medications: {profile.medications}")
+    if profile.family_history: parts.append(f"Family history: {profile.family_history}")
+    
+    return ". ".join(parts) if parts else "Healthy individual"
 
-def send_email(to_email: str, subject: str, body: str):
-    host=os.getenv("SMTP_HOST"); port=int(os.getenv("SMTP_PORT","587"))
-    user=os.getenv("SMTP_USER"); pwd=os.getenv("SMTP_PASS")
-    sender=os.getenv("SMTP_FROM", user or "no-reply@vitalguard.local")
-    if not (host and user and pwd and to_email): return False
-    msg=MIMEText(body,"plain","utf-8"); msg["Subject"]=subject; msg["From"]=sender; msg["To"]=to_email
-    import ssl; ctx=ssl.create_default_context()
+# AI Functions
+def call_openai_api(symptoms, profile_context):
+    if not USE_OPENAI or not client:
+        return None
+        
     try:
-        with smtplib.SMTP(host, port) as server:
-            server.starttls(context=ctx); server.login(user, pwd); server.sendmail(sender, [to_email], msg.as_string())
-        return True
-    except Exception:
-        return False
+        print(f"Calling OpenAI with symptoms: {symptoms}")
+        
+        prompt = f"""You are a medical AI assistant. Analyze these symptoms and return JSON only.
 
-def send_sms(to_phone: str, body: str):
-    if not (twilio_client and TWILIO_FROM and to_phone): return False
-    try:
-        twilio_client.messages.create(from_=TWILIO_FROM, to=to_phone, body=body)
-        return True
-    except Exception:
-        return False
+Symptoms: {symptoms}
+Patient: {profile_context}
 
-# ---------------- Scheduler ----------------
-def process_due_reminders():
-    with app.app_context():
-        now = datetime.now(timezone.utc)
-        pending = Reminder.query.filter(Reminder.sent_at.is_(None)).all()
-        for r in pending:
-            due = r.due_at
-            notify_at = due - timedelta(minutes=r.pre_notify_min or 0)
-            if now >= notify_at:
-                user = User.query.get(r.user_id)
-                prof = Profile.query.filter_by(user_id=r.user_id).first()
-                subject = f"Vital Guard Reminder: {r.title}"
-                local_due = utc_to_local(due, pytz.timezone(prof.tz or "UTC")) if prof else due
-                body = f"""{r.title}
-Type: {r.kind}
-When: {local_due.strftime("%b %d, %Y %H:%M")}
-Notes: {r.notes or '-'}
-"""
-                if (prof is None) or prof.notify_email: send_email(user.email, subject, body)
-                if prof and prof.notify_sms and prof.phone: send_sms(prof.phone, f"{r.title} at {local_due.strftime('%b %d %H:%M')} — {r.notes or ''}")
-                r.sent_at = now; db.session.add(r)
-        db.session.commit()
+Return this exact JSON format:
+{{
+    "urgency": "emergency|high|medium|low",
+    "suggested_specialty": "specialty name",
+    "advice": ["advice 1", "advice 2", "advice 3"],
+    "lifestyle": ["tip 1", "tip 2"],
+    "doctor_search_query": "search query",
+    "disclaimer": "This is educational information only"
+}}
 
-scheduler = BackgroundScheduler(daemon=True)
-scheduler.add_job(process_due_reminders, "interval", seconds=60)
-scheduler.start()
+Safety: If emergency symptoms (chest pain, breathing issues, bleeding), set urgency to "emergency" and first advice must be "Call 911 immediately"."""
 
-# ---------------- Routes ----------------
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You return only valid JSON responses."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=800,
+            response_format={"type": "json_object"}
+        )
+        
+        result_text = response.choices[0].message.content.strip()
+        print(f"OpenAI response: {result_text}")
+        
+        result = json.loads(result_text)
+        
+        # Ensure required fields
+        result.setdefault("urgency", "low")
+        result.setdefault("suggested_specialty", "Primary Care")
+        result.setdefault("advice", ["Consult a healthcare professional"])
+        result.setdefault("lifestyle", ["Stay hydrated", "Get adequate rest"])
+        result.setdefault("doctor_search_query", "primary care doctor near me")
+        result.setdefault("disclaimer", "Educational information only. Not medical advice.")
+        
+        return result
+        
+    except Exception as e:
+        print(f"OpenAI error: {e}")
+        return None
+
+def fallback_analysis(symptoms):
+    symptoms = symptoms.lower()
+    
+    if any(word in symptoms for word in ["chest pain", "can't breathe", "unconscious", "bleeding"]):
+        return {
+            "urgency": "emergency",
+            "suggested_specialty": "Emergency Medicine",
+            "advice": ["Call 911 immediately", "Do not drive yourself", "Stay calm"],
+            "lifestyle": ["Follow emergency protocols"],
+            "doctor_search_query": "emergency room near me",
+            "disclaimer": "EMERGENCY - Call 911 now"
+        }
+    elif any(word in symptoms for word in ["fever", "cough", "cold", "flu"]):
+        return {
+            "urgency": "medium",
+            "suggested_specialty": "Primary Care",
+            "advice": ["Rest and hydrate", "Monitor temperature", "See doctor if worsens"],
+            "lifestyle": ["Drink fluids", "Get sleep", "Avoid others"],
+            "doctor_search_query": "primary care doctor cold flu",
+            "disclaimer": "Educational information only"
+        }
+    else:
+        return {
+            "urgency": "low",
+            "suggested_specialty": "Primary Care", 
+            "advice": ["Monitor symptoms", "Rest", "See doctor if persists"],
+            "lifestyle": ["Stay healthy", "Get sleep", "Eat well"],
+            "doctor_search_query": "primary care doctor near me",
+            "disclaimer": "Educational information only"
+        }
+
+# Routes
 @app.route("/")
 def index():
     prof = Profile.query.filter_by(user_id=current_user.id).first() if current_user.is_authenticated else None
     upcoming = []
     if current_user.is_authenticated:
-        upcoming = Reminder.query.filter_by(user_id=current_user.id).order_by(Reminder.due_at.asc()).limit(8).all()
-    return render_template("index.html", profile=prof, upcoming=upcoming, stripe_public=STRIPE_PUBLIC, price_id=STRIPE_PRICE_ID)
+        upcoming = Reminder.query.filter_by(user_id=current_user.id).order_by(Reminder.due_at.asc()).limit(5).all()
+    return render_template("index.html", profile=prof, upcoming=upcoming)
 
-# ---- Auth ----
 @app.route("/register", methods=["GET","POST"])
 def register():
     if request.method=="POST":
         email=request.form.get("email","").strip().lower()
         pw=request.form.get("password","")
         if not email or not pw:
-            flash("Email and password required.","error"); return redirect(url_for("register"))
+            flash("Email and password required.","error")
+            return redirect(url_for("register"))
         if User.query.filter_by(email=email).first():
-            flash("Account exists.","error"); return redirect(url_for("register"))
+            flash("Account exists.","error")
+            return redirect(url_for("register"))
         u=User(email=email, password_hash=generate_password_hash(pw))
-        db.session.add(u); db.session.commit()
-        db.session.add(Profile(user_id=u.id)); db.session.commit()
-        login_user(u); flash("Welcome to Vital Guard.","success")
+        db.session.add(u)
+        db.session.commit()
+        db.session.add(Profile(user_id=u.id))
+        db.session.commit()
+        login_user(u)
+        flash("Welcome to Vital Guard.","success")
         return redirect(url_for("index"))
     return render_template("register.html")
 
 @app.route("/login", methods=["GET","POST"])
 def login():
     if request.method=="POST":
-        email=request.form.get("email","").strip().lower(); pw=request.form.get("password","")
+        email=request.form.get("email","").strip().lower()
+        pw=request.form.get("password","")
         u=User.query.filter_by(email=email).first()
         if not u or not check_password_hash(u.password_hash, pw):
-            flash("Invalid credentials.","error"); return redirect(url_for("login"))
-        login_user(u); flash("Logged in.","success"); return redirect(url_for("index"))
+            flash("Invalid credentials.","error")
+            return redirect(url_for("login"))
+        login_user(u)
+        flash("Logged in.","success")
+        return redirect(url_for("index"))
     return render_template("login.html")
 
 @app.route("/logout")
 @login_required
 def logout():
-    logout_user(); flash("Logged out.","success"); return redirect(url_for("index"))
+    logout_user()
+    flash("Logged out.","success")
+    return redirect(url_for("index"))
 
-# ---- Profile ----
 @app.route("/profile", methods=["GET","POST"])
 @login_required
 def profile():
     p=Profile.query.filter_by(user_id=current_user.id).first()
     if request.method=="POST":
-        fields = ["name","gender","conditions","allergies","medications","emergency_contact","phone","tz","goals","diet_prefs","activity_limits","notes"]
-        for f in fields: setattr(p, f, request.form.get(f,"").strip())
+        fields = ["name","gender","conditions","allergies","medications","family_history","emergency_contact","phone","tz","goals","diet_prefs","activity_limits","notes"]
+        for f in fields: 
+            setattr(p, f, request.form.get(f,"").strip())
         p.age=int(request.form.get("age")) if request.form.get("age") else None
         p.weight_kg=float(request.form.get("weight_kg")) if request.form.get("weight_kg") else None
         p.height_cm=float(request.form.get("height_cm")) if request.form.get("height_cm") else None
         p.notify_email=bool(request.form.get("notify_email"))
         p.notify_sms=bool(request.form.get("notify_sms"))
-        db.session.add(p); db.session.commit()
-        flash("Profile saved.","success"); return redirect(url_for("profile"))
+        db.session.add(p)
+        db.session.commit()
+        flash("Profile saved.","success")
+        return redirect(url_for("profile"))
     return render_template("profile.html", profile=p)
 
-# ---- Care Team ----
 @app.route("/care-team", methods=["GET","POST"])
 @login_required
 def care_team():
@@ -283,12 +362,16 @@ def care_team():
         role = request.form.get("role","viewer")
         cg_user = User.query.filter_by(email=caregiver_email).first()
         if not cg_user:
-            flash("No user with that email.","error"); return redirect(url_for("care_team"))
+            flash("No user with that email.","error")
+            return redirect(url_for("care_team"))
         if cg_user.id == current_user.id:
-            flash("You are already the account owner.","error"); return redirect(url_for("care_team"))
+            flash("You are already the account owner.","error")
+            return redirect(url_for("care_team"))
         rel = CareTeam(patient_id=current_user.id, caregiver_id=cg_user.id, role=role)
-        db.session.add(rel); db.session.commit()
-        flash("Caregiver added.","success"); return redirect(url_for("care_team"))
+        db.session.add(rel)
+        db.session.commit()
+        flash("Caregiver added.","success")
+        return redirect(url_for("care_team"))
     rels = CareTeam.query.filter_by(patient_id=current_user.id).all()
     caregivers = []
     for r in rels:
@@ -296,7 +379,6 @@ def care_team():
         caregivers.append({"email": u.email, "role": r.role})
     return render_template("care_team.html", caregivers=caregivers)
 
-# ---- Reminders ----
 @app.route("/reminders", methods=["GET","POST"])
 @login_required
 def reminders():
@@ -312,10 +394,11 @@ def reminders():
             flash("Title and valid local date/time required.","error")
         else:
             r=Reminder(user_id=current_user.id, title=title, kind=kind, due_at=due_utc, pre_notify_min=pre_notify, notes=notes)
-            db.session.add(r); db.session.commit(); flash("Reminder added.","success")
+            db.session.add(r)
+            db.session.commit()
+            flash("Reminder added.","success")
         return redirect(url_for("reminders"))
     items = Reminder.query.filter_by(user_id=current_user.id).order_by(Reminder.due_at.asc()).all()
-    # present due times localized
     def row(r):
         return {
             "id": r.id,
@@ -329,216 +412,167 @@ def reminders():
     items_view = [row(r) for r in items]
     return render_template("reminders.html", items=items_view)
 
-@app.post("/reminders/<int:rid>/delete")
+@app.route("/reminders/<int:rid>/delete", methods=["POST"])
 @login_required
 def delete_reminder(rid):
     r = Reminder.query.filter_by(id=rid, user_id=current_user.id).first_or_404()
-    db.session.delete(r); db.session.commit()
+    db.session.delete(r)
+    db.session.commit()
     flash("Reminder deleted.","success")
     return redirect(url_for("reminders"))
 
-# ---- AI Health Assistant ----
+@app.route("/medications", methods=["GET","POST"])
+@login_required
+def medications():
+    if request.method=="POST":
+        name = request.form.get("name","").strip()
+        dosage = request.form.get("dosage","").strip()
+        frequency = request.form.get("frequency","").strip()
+        prescribed_by = request.form.get("prescribed_by","").strip()
+        condition_for = request.form.get("condition_for","").strip()
+        start_date_str = request.form.get("start_date","").strip()
+        end_date_str = request.form.get("end_date","").strip()
+        refill_date_str = request.form.get("refill_date","").strip()
+        pills_remaining = request.form.get("pills_remaining","").strip()
+        notes = request.form.get("notes","").strip()
+        
+        if not name or not start_date_str:
+            flash("Medication name and start date are required.","error")
+            return redirect(url_for("medications"))
+            
+        start_date = parse_date(start_date_str)
+        end_date = parse_date(end_date_str) if end_date_str else None
+        refill_date = parse_date(refill_date_str) if refill_date_str else None
+        pills_count = int(pills_remaining) if pills_remaining.isdigit() else None
+        
+        if not start_date:
+            flash("Invalid start date format. Use YYYY-MM-DD.","error")
+            return redirect(url_for("medications"))
+            
+        med = Medication(
+            user_id=current_user.id,
+            name=name,
+            dosage=dosage,
+            frequency=frequency,
+            prescribed_by=prescribed_by,
+            condition_for=condition_for,
+            start_date=start_date,
+            end_date=end_date,
+            refill_date=refill_date,
+            pills_remaining=pills_count,
+            notes=notes
+        )
+        db.session.add(med)
+        db.session.commit()
+        flash("Medication added successfully.","success")
+        return redirect(url_for("medications"))
+        
+    meds = Medication.query.filter_by(user_id=current_user.id, active=True).order_by(Medication.name.asc()).all()
+    
+    today = datetime.now().date()
+    refill_alerts = []
+    for med in meds:
+        if med.refill_date and med.refill_date <= today + timedelta(days=7):
+            days_until = (med.refill_date - today).days
+            refill_alerts.append({
+                "medication": med,
+                "days_until": days_until,
+                "is_overdue": days_until < 0
+            })
+    
+    return render_template("medications.html", medications=meds, refill_alerts=refill_alerts)
+
+@app.route("/medications/<int:mid>/toggle", methods=["POST"])
+@login_required
+def toggle_medication(mid):
+    med = Medication.query.filter_by(id=mid, user_id=current_user.id).first_or_404()
+    med.active = not med.active
+    db.session.add(med)
+    db.session.commit()
+    status = "activated" if med.active else "deactivated"
+    flash(f"Medication {status}.","success")
+    return redirect(url_for("medications"))
+
+@app.route("/medications/<int:mid>/delete", methods=["POST"])
+@login_required
+def delete_medication(mid):
+    med = Medication.query.filter_by(id=mid, user_id=current_user.id).first_or_404()
+    db.session.delete(med)
+    db.session.commit()
+    flash("Medication deleted.","success")
+    return redirect(url_for("medications"))
+
 @app.route("/assistant")
 @login_required
 def assistant():
-    return render_template("assistant.html")
+    return render_template("assistant.html", ai_enabled=USE_OPENAI)
 
-@app.post("/api/health-assistant")
+@app.route("/api/health-assistant", methods=["POST"])
 @login_required
-def api_health_assistant():
-    data = request.get_json(silent=True) or {}
-    symptoms = (data.get("symptoms", "")).lower()
-    user_query = (data.get("query", "")).lower()
-    prof = Profile.query.filter_by(user_id=current_user.id).first()
-
-    if not prof:
-        return jsonify({"error": "Please complete your profile first."}), 400
-
-    # Use the new comprehensive AI function
-    if USE_OPENAI and client:
-        result = ai_health_assistant(symptoms, prof, user_query)
-        # NEW: Check if the result is an error and return it to the front end
-        if "error" in result:
-            return jsonify(result), 500
-    else:
-        result = heuristic_triage(symptoms, prof)
-
-    # If the AI returns a search query, create a Google search link.
-    if result.get("doctor_search_query"):
-        from urllib.parse import quote_plus
-        search_query = quote_plus(result["doctor_search_query"])
-        result["google_search_link"] = f"https://www.google.com/search?q={search_query}"
+def health_assistant_api():
+    print("HEALTH ASSISTANT API CALLED!")
     
-    # Save the plan if one is generated
-    if result.get("plan"):
-        plan = Plan(user_id=current_user.id, kind="assistant", content=json.dumps(result))
-        db.session.add(plan)
-        db.session.commit()
+    try:
+        data = request.get_json() or {}
+        symptoms = data.get("symptoms", "").strip()
+        
+        print(f"Received symptoms: '{symptoms}'")
+        
+        if not symptoms:
+            print("No symptoms provided")
+            return jsonify({"error": "Please describe your symptoms"}), 400
+        
+        profile = Profile.query.filter_by(user_id=current_user.id).first()
+        profile_context = build_profile_context(profile)
+        
+        print(f"User profile: {profile_context}")
+        print(f"OpenAI enabled: {USE_OPENAI}")
+        
+        result = None
+        if USE_OPENAI:
+            print("Trying OpenAI...")
+            result = call_openai_api(symptoms, profile_context)
+        
+        if not result:
+            print("Using fallback analysis")
+            result = fallback_analysis(symptoms)
+        
+        if result.get("doctor_search_query"):
+            from urllib.parse import quote_plus
+            query = quote_plus(result["doctor_search_query"])
+            result["google_search_link"] = f"https://www.google.com/search?q={query}"
+        
+        print(f"Returning result: {result}")
+        return jsonify(result)
+        
+    except Exception as e:
+        print(f"API Error: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
-    return jsonify(result)
-
-# ---- Data Export ----
-@app.get("/export")
-@login_required
-def export_data():
+@app.route("/export")
+@login_required  
+def export():
     prof = Profile.query.filter_by(user_id=current_user.id).first()
-    rems = Reminder.query.filter_by(user_id=current_user.id).order_by(Reminder.due_at.asc()).all()
-    plans = Plan.query.filter_by(user_id=current_user.id).order_by(Plan.created_at.desc()).all()
+    rems = Reminder.query.filter_by(user_id=current_user.id).all()
+    try:
+        meds = Medication.query.filter_by(user_id=current_user.id).all()
+    except:
+        meds = []
+        
     data = {
         "user": {"email": current_user.email, "is_pro": current_user.is_pro},
         "profile": {
-            "name": prof.name, "age": prof.age, "gender": prof.gender, "weight_kg": prof.weight_kg,
-            "height_cm": prof.height_cm, "conditions": prof.conditions, "allergies": prof.allergies,
-            "medications": prof.medications, "emergency_contact": prof.emergency_contact, "phone": prof.phone,
-            "notify_email": prof.notify_email, "notify_sms": prof.notify_sms, "tz": prof.tz,
-            "goals": prof.goals, "diet_prefs": prof.diet_prefs, "activity_limits": prof.activity_limits, "notes": prof.notes,
+            "name": prof.name if prof else "",
+            "age": prof.age if prof else None,
+            "conditions": prof.conditions if prof else "",
+            "family_history": getattr(prof, 'family_history', '') if prof else "",
         },
-        "reminders": [
-            {"title": r.title, "kind": r.kind, "due_at_utc": r.due_at.isoformat(), "pre_notify_min": r.pre_notify_min, "notes": r.notes}
-            for r in rems
-        ],
-        "plans": [{"kind": p.kind, "created_at": p.created_at.isoformat(), "content": p.content} for p in plans],
+        "reminders": [{"title": r.title, "due_at": r.due_at.isoformat()} for r in rems],
+        "medications": [{"name": m.name, "dosage": m.dosage, "active": m.active} for m in meds]
     }
-    js = json.dumps(data, indent=2, ensure_ascii=False)
-    return Response(js, mimetype="application/json")
+    return Response(json.dumps(data, indent=2), mimetype="application/json")
 
-# ---- Billing (Stripe) ----
-@app.route("/billing")
-@login_required
-def billing():
-    return render_template("billing.html", stripe_public=STRIPE_PUBLIC, price_id=STRIPE_PRICE_ID, is_configured=bool(STRIPE_PUBLIC and STRIPE_PRICE_ID))
-
-@app.post("/api/create-checkout-session")
-@login_required
-def create_checkout_session():
-    if not (STRIPE_PUBLIC and STRIPE_SECRET and STRIPE_PRICE_ID):
-        return jsonify({"error":"Stripe not configured"}), 400
-    session = _stripe.checkout.Session.create(
-        mode="subscription",
-        line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
-        success_url=request.host_url + "billing?success=1",
-        cancel_url=request.host_url + "billing?canceled=1",
-        customer_email=current_user.email,
-        allow_promotion_codes=True,
-    )
-    return jsonify({"id": session.id})
-
-@app.post("/stripe/webhook")
-def stripe_webhook():
-    if not STRIPE_WEBHOOK_SECRET:
-        return "", 200
-    payload = request.data
-    sig_header = request.headers.get("Stripe-Signature","")
-    try:
-        event = _stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
-    except Exception:
-        return "", 400
-    if event["type"] in ["checkout.session.completed","customer.subscription.created","customer.subscription.updated"]:
-        email = event["data"]["object"].get("customer_email") or event["data"]["object"].get("customer_details",{}).get("email")
-        if email:
-            user = User.query.filter_by(email=email.lower()).first()
-            if user:
-                user.is_pro = True
-                db.session.add(user); db.session.commit()
-    return "", 200
-
-# ---------------- Triage & AI Logic ----------------
-URGENT_TERMS=["chest pain","pressure in chest","shortness of breath","stroke","numbness one side","fainting","severe bleeding"]
-INFECTION_TERMS=["fever","chills","sore throat","cough","congestion","flu","body aches"]
-DIABETES_TERMS=["thirst","urination","blurry vision","fatigue","slow healing"]
-CARDIO_TERMS=["palpitations","irregular heartbeat","swelling ankles","hypertension","bp high"]
-MIGRAINE_TERMS=["migraine","headache","light sensitivity","aura","nausea"]
-GI_TERMS=["abdominal pain","diarrhea","constipation","heartburn","acid reflux","nausea","vomiting"]
-
-def heuristic_triage(text, profile):
-    urgency="low"; spec="primary care"; advice=[]
-    def has_any(ts): return any(t in text for t in ts)
-    if has_any(URGENT_TERMS): urgency="emergency"; spec="emergency medicine"; advice.append("Call emergency services or go to the ER immediately.")
-    elif has_any(CARDIO_TERMS): urgency="high"; spec="cardiology"; advice.append("Schedule an urgent appointment with a cardiologist.")
-    elif has_any(DIABETES_TERMS): urgency="medium"; spec="endocrinology"; advice.append("Check blood glucose and consult an endocrinologist.")
-    elif has_any(INFECTION_TERMS): urgency="medium"; spec="primary care"; advice.append("Hydrate, rest; test for COVID/flu; see primary care if persists.")
-    elif has_any(MIGRAINE_TERMS): urgency="low"; spec="neurology"; advice.append("Reduce light; hydrate; consider OTC analgesics if appropriate.")
-    elif has_any(GI_TERMS): urgency="low"; spec="gastroenterology"; advice.append("Track foods; hydrate; seek care if severe/persistent.")
-    else: advice.append("Monitor symptoms. If they worsen or persist >48 hours, see primary care.")
-    lifestyle = lifestyle_recs(profile)
-    return {"urgency":urgency,"suggested_specialty":spec,"advice":advice,"lifestyle":lifestyle[:6],"disclaimer":"Educational support only. Not a medical diagnosis. Seek professional care for urgent concerns."}
-
-def bmi_from_profile(p):
-    if p and p.weight_kg and p.height_cm and p.height_cm>0:
-        h = p.height_cm/100.0
-        return p.weight_kg/(h*h)
-    return None
-
-def lifestyle_recs(profile):
-    recs=[]
-    if not profile: return recs
-    conds=(profile.conditions or "").lower()
-    if "diabetes" in conds: recs+=["Low-glycemic carbs, lean proteins.","Avoid sugary beverages.","150 min/wk moderate activity."]
-    if "hypertension" in conds or "high blood pressure" in conds: recs+=["DASH-style diet, low sodium.","Limit alcohol; monitor BP 3–4x/wk."]
-    bmi=bmi_from_profile(profile)
-    if bmi is not None and bmi>=30: recs+=["Swap fried→baked; soda→water.","8–10k steps/day + 2x/wk resistance."]
-    if "asthma" in conds: recs+=["Track triggers; warm up before activity; keep rescue inhaler accessible."]
-    return recs
-
-def ai_health_assistant(symptom_text, profile, user_query=""):
-    ctx = build_ai_context(profile)
-    prompt = f"""
-You are a cautious, empathetic AI health assistant named Vital Guard. Your goal is to provide safe, helpful, and clear guidance.
-Return a single, valid JSON object with the following keys:
-- "urgency": (string) one of "emergency", "high", "medium", "low".
-- "suggested_specialty": (string) e.g., "Cardiology", "Primary Care".
-- "advice": (array of strings) Actionable next steps for the user.
-- "lifestyle": (array of strings) Relevant lifestyle tips based on their profile and symptoms.
-- "doctor_search_query": (string) A Google search query to find a relevant local specialist. Example: "cardiologist near me for chest pain".
-- "disclaimer": (string) A standard medical disclaimer.
-
-CRITICAL SAFETY RULES:
-- If symptoms include any red flags (chest pain, difficulty breathing, severe bleeding, stroke symptoms like one-sided numbness), ALWAYS set urgency to "emergency" and the first piece of advice MUST be "Call emergency services (911) or go to the nearest emergency room immediately."
-- Your responses are for informational purposes only and are not a substitute for professional medical advice, diagnosis, or treatment.
-- Be conservative in your recommendations. When in doubt, advise consulting a healthcare professional.
-
-User's Symptoms: "{symptom_text}"
-User's Specific Question: "{user_query}"
-User's Health Profile: {ctx}
-"""
-    try:
-        if client and client != "legacy":
-            resp = client.chat.completions.create(
-                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                messages=[{"role": "system", "content": "You are a helpful assistant that only returns valid JSON."},
-                          {"role": "user", "content": prompt}],
-                temperature=0.2
-            )
-            content = resp.choices[0].message.content.strip()
-        else:
-            # This part is for the older openai library version, just in case
-            import openai
-            resp = openai.ChatCompletion.create(
-                model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-                messages=[{"role": "system", "content": "You are a helpful assistant that only returns valid JSON."},
-                          {"role": "user", "content": prompt}],
-                temperature=0.2,
-            )
-            content = resp["choices[0]"]["message"]["content"].strip()
-
-        data = json.loads(content)
-        data.setdefault("disclaimer", "Educational support only. Not a medical diagnosis. Seek professional care for urgent concerns.")
-        
-        # Merge heuristic lifestyle recommendations with AI-generated ones to ensure base coverage.
-        base_lifestyle = lifestyle_recs(profile)
-        ai_lifestyle = data.get("lifestyle", [])
-        for tip in base_lifestyle:
-            if tip not in ai_lifestyle:
-                ai_lifestyle.append(tip)
-        data["lifestyle"] = ai_lifestyle
-        return data
-
-    except Exception as e:
-        # NEW DEBUGGING STEP: Return the error message itself
-        app.logger.error(f"AI call failed: {e}")
-        return {"error": str(e)}
-
-
-if __name__=="__main__":
+if __name__ == "__main__":
+    print(f"Starting Vital Guard - AI {'ENABLED' if USE_OPENAI else 'DISABLED'}")
     bootstrap_db()
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT",5000)), debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)

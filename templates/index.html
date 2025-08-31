@@ -3,7 +3,7 @@
 <section class="hero">
   <div class="fade-in-up">
     <h1>Your Personal Health Guardian</h1>
-    <p>Intelligent symptom analysis, proactive reminders, and personalized health plans—all in one secure place.</p>
+    <p>Intelligent symptom analysis, medication tracking, proactive reminders, and personalized health plans—all in one secure place.</p>
     <div class="actions">
       <a class="btn" href="{{ url_for('assistant') }}">Ask AI Assistant</a>
       {% if not current_user.is_authenticated %}
@@ -17,7 +17,7 @@
 
 <div class="grid">
   <section class="card fade-in-up delay-1">
-    <h2>Upcoming Reminders</h2>
+    <h2>📅 Upcoming Reminders</h2>
     {% if current_user.is_authenticated and upcoming %}
       <ul class="list list-separated">
         {% for r in upcoming %}
@@ -30,6 +30,9 @@
           </li>
         {% endfor %}
       </ul>
+      <div style="margin-top: 16px;">
+        <a href="{{ url_for('reminders') }}" class="btn btn-ghost">View All Reminders</a>
+      </div>
     {% elif current_user.is_authenticated %}
         <p class="muted">You have no upcoming reminders. <a href="{{ url_for('reminders') }}">Create one now</a>.</p>
     {% else %}
@@ -37,18 +40,50 @@
     {% endif %}
   </section>
 
+  {% if current_user.is_authenticated %}
   <section class="card fade-in-up delay-2">
-    <h2>Go Pro</h2>
-    <p class="muted small">Upgrade to Pro for unlimited AI assistant chats, advanced health plans, and full data export capabilities.</p>
-    {% if stripe_public and price_id %}
-      <button class="btn" id="buyBtn">Subscribe to Pro</button>
-      <script>
-        window.STRIPE_KEY="{{ stripe_public }}"; window.PRICE_ID="{{ price_id }}";
-      </script>
-      <script src="{{ url_for('static', filename='js/billing.js') }}"></script>
+    <h2>💊 Quick Health Overview</h2>
+    {% if profile %}
+      <div style="display: grid; gap: 12px;">
+        {% if profile.conditions %}
+          <div><strong>Conditions:</strong> <span class="muted">{{ profile.conditions[:50] }}{% if profile.conditions|length > 50 %}...{% endif %}</span></div>
+        {% endif %}
+        {% if profile.family_history %}
+          <div><strong>Family History:</strong> <span class="muted">{{ profile.family_history[:50] }}{% if profile.family_history|length > 50 %}...{% endif %}</span></div>
+        {% endif %}
+        {% if profile.goals %}
+          <div><strong>Current Goals:</strong> <span class="muted">{{ profile.goals[:50] }}{% if profile.goals|length > 50 %}...{% endif %}</span></div>
+        {% endif %}
+      </div>
+      <div style="margin-top: 16px; display: flex; gap: 8px;">
+        <a href="{{ url_for('profile') }}" class="btn btn-ghost">Update Profile</a>
+        <a href="{{ url_for('medications') }}" class="btn btn-ghost">Manage Medications</a>
+      </div>
     {% else %}
-      <p class="muted small">Billing is not configured yet. Set STRIPE_* variables in your .env file to enable subscriptions.</p>
+      <p class="muted">Complete your <a href="{{ url_for('profile') }}">health profile</a> to get personalized insights and better AI recommendations.</p>
     {% endif %}
   </section>
+  {% else %}
+  <section class="card fade-in-up delay-2">
+    <h2>🚀 Get Started</h2>
+    <p class="muted small">Create your account to unlock powerful health management features:</p>
+    <ul style="margin: 12px 0; color: #64748b;">
+      <li>🤖 AI-powered symptom analysis</li>
+      <li>💊 Medication tracking & refill alerts</li>
+      <li>📅 Smart health reminders</li>
+      <li>👥 Family care team access</li>
+      <li>📊 Health data export</li>
+    </ul>
+    <a href="{{ url_for('register') }}" class="btn">Create Free Account</a>
+  </section>
+  {% endif %}
 </div>
+
+{% if current_user.is_authenticated %}
+<section class="card fade-in-up delay-3" style="text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
+  <h3 style="margin-top: 0; color: white;">🧠 AI Health Assistant</h3>
+  <p style="margin-bottom: 16px; opacity: 0.9;">Get instant, personalized health guidance based on your symptoms and medical history.</p>
+  <a href="{{ url_for('assistant') }}" class="btn" style="background: white; color: #667eea;">Try AI Assistant</a>
+</section>
+{% endif %}
 {% endblock %}
