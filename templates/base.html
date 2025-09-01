@@ -90,6 +90,9 @@
         <a href="{{ url_for('medications') }}">Medications</a>
         <a href="{{ url_for('reminders') }}">Reminders</a>
         <a href="{{ url_for('care_team') }}">Care Team</a>
+        <a href="{{ url_for('billing') }}" style="color: {% if user_has_active_subscription(current_user) %}#059669{% else %}#f59e0b{% endif %};">
+          {% if user_has_active_subscription(current_user) %}Pro Account{% else %}Upgrade Pro{% endif %}
+        </a>
         <a href="{{ url_for('export') }}" style="color: #059669;">Export Data</a>
         <a href="{{ url_for('logout') }}">Logout</a>
       {% else %}

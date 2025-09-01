@@ -4,6 +4,17 @@
   <h2>🤖 AI Health Assistant</h2>
   <p class="muted small">Describe your symptoms or ask a health question. Your AI assistant will provide personalized guidance based on your health profile.</p>
   
+  {% if not has_pro %}
+    <!-- Upgrade Prompt for Free Users -->
+    <div style="background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: white; padding: 20px; border-radius: 12px; margin-bottom: 24px; text-align: center;">
+      <h3 style="margin-top: 0; color: white;">🔒 Pro Feature</h3>
+      <p style="margin: 12px 0; opacity: 0.9;">AI Health Assistant requires Vital Guard Pro subscription for unlimited access to advanced symptom analysis.</p>
+      <a href="{{ url_for('billing') }}" class="btn" style="background: white; color: #f59e0b; text-decoration: none; margin-top: 8px;">
+        Upgrade to Pro - $9.99/month
+      </a>
+    </div>
+  {% endif %}
+  
   <div class="form">
     <label for="symptoms">How are you feeling today?</label>
     <textarea 
@@ -11,10 +22,13 @@
       rows="4" 
       placeholder="Example: I've had a persistent cough and slight fever for three days. I also feel tired and have some body aches. What should I do?"
       style="min-height: 80px; resize: vertical;"
+      {% if not has_pro %}disabled{% endif %}
     ></textarea>
     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
       <small class="muted">💡 Tip: Press Ctrl/Cmd + Enter to submit</small>
-      <button id="checkBtn" class="btn">Get AI Guidance</button>
+      <button id="checkBtn" class="btn" {% if not has_pro %}disabled style="opacity: 0.6; cursor: not-allowed;"{% endif %}>
+        {% if has_pro %}Get AI Guidance{% else %}Requires Pro{% endif %}
+      </button>
     </div>
   </div>
 
@@ -53,12 +67,178 @@
 <!-- AI Status Indicator -->
 <section class="card fade-in-up delay-1" style="text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none;">
   <h3 style="margin-top: 0; color: white;">🧠 AI-Powered Analysis</h3>
-  {% if openai_configured %}
-    <p style="margin-bottom: 0; opacity: 0.9;">✅ Advanced AI analysis enabled</p>
+  {% if has_pro %}
+    <p style="margin-bottom: 0; opacity: 0.9;">✅ Pro subscription active - unlimited AI analysis enabled</p>
+  {% elif ai_enabled %}
+    <p style="margin-bottom: 16px; opacity: 0.9;">⚙️ Advanced AI available with Pro subscription</p>
+    <a href="{{ url_for('billing') }}" class="btn" style="background: white; color: #667eea; text-decoration: none;">
+      Unlock AI Assistant
+    </a>
   {% else %}
     <p style="margin-bottom: 0; opacity: 0.9;">⚙️ Using intelligent heuristic analysis (configure OpenAI for enhanced AI features)</p>
   {% endif %}
 </section>
 
-<script src="{{ url_for('static', filename='js/assistant.js') }}"></script>
+<script>
+console.log("🔍 Assistant JS loaded");
+
+document.addEventListener("DOMContentLoaded", () => {
+  const btn = document.getElementById("checkBtn");
+  const area = document.getElementById("symptoms");
+  const result = document.getElementById("result");
+  const badge = document.getElementById("urgencyBadge");
+  const spec = document.getElementById("spec");
+  const adviceList = document.getElementById("adviceList");
+  const lifeList = document.getElementById("lifeList");
+  const disc = document.getElementById("disc");
+  const doctorSearch = document.getElementById("doctorSearch");
+  const doctorLink = document.getElementById("doctorLink");
+
+  console.log("Elements check:", {
+    btn: !!btn,
+    area: !!area,
+    result: !!result,
+    hasPro: {{ 'true' if has_pro else 'false' }}
+  });
+
+  if (!btn || !area) {
+    console.error("❌ Required elements missing!");
+    return;
+  }
+
+  // Only add event listener if user has pro access
+  {% if has_pro %}
+  btn.addEventListener("click", async () => {
+    console.log("🔥 Button clicked!");
+    
+    const symptoms = area.value.trim();
+    console.log("Symptoms:", symptoms);
+    
+    if (!symptoms) {
+      alert("Please enter your symptoms");
+      return;
+    }
+    
+    btn.disabled = true;
+    btn.textContent = "Analyzing...";
+    
+    try {
+      console.log("🚀 Making fetch request...");
+      
+      const response = await fetch("/api/health-assistant", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          symptoms: symptoms
+        })
+      });
+      
+      console.log("Response status:", response.status);
+      console.log("Response ok:", response.ok);
+      
+      const data = await response.json();
+      
+      if (response.status === 403 && data.upgrade_required) {
+        // Show upgrade prompt
+        result.classList.remove("hide");
+        result.innerHTML = `
+          <div style="text-align: center; padding: 40px; background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: white; border-radius: 12px;">
+            <h3 style="margin-top: 0; color: white;">🔒 AI Assistant Requires Pro</h3>
+            <p style="margin-bottom: 20px; opacity: 0.9;">Upgrade to Vital Guard Pro for unlimited AI health insights and advanced symptom analysis.</p>
+            <a href="/billing" class="btn" style="background: white; color: #f59e0b; text-decoration: none;">
+              Upgrade to Pro - $9.99/month
+            </a>
+            <p style="margin: 16px 0 0 0; opacity: 0.8; font-size: 14px;">Cancel anytime • 7-day money back guarantee</p>
+          </div>
+        `;
+        return;
+      }
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      console.log("✅ Got response:", data);
+      
+      // Show results
+      if (result) {
+        result.classList.remove("hide");
+        
+        if (badge) badge.textContent = (data.urgency || "low").toUpperCase();
+        if (spec) spec.textContent = data.suggested_specialty || "Primary Care";
+        if (disc) disc.textContent = data.disclaimer || "Educational only";
+        
+        // Clear and populate advice
+        if (adviceList) {
+          adviceList.innerHTML = "";
+          (data.advice || []).forEach(advice => {
+            const li = document.createElement("li");
+            li.textContent = advice;
+            adviceList.appendChild(li);
+          });
+        }
+        
+        // Clear and populate lifestyle
+        if (lifeList) {
+          lifeList.innerHTML = "";
+          (data.lifestyle || []).forEach(tip => {
+            const li = document.createElement("li");
+            li.textContent = tip;
+            lifeList.appendChild(li);
+          });
+        }
+        
+        // Doctor search link
+        if (doctorSearch && doctorLink && data.google_search_link) {
+          doctorSearch.classList.remove("hide");
+          doctorLink.href = data.google_search_link;
+        } else if (doctorSearch) {
+          doctorSearch.classList.add("hide");
+        }
+        
+        // Style urgency badge
+        if (badge) {
+          badge.style.background = data.urgency === "emergency" ? "#dc2626" :
+                                   data.urgency === "high" ? "#ea580c" :
+                                   data.urgency === "medium" ? "#d97706" : "#059669";
+          badge.style.color = "#ffffff";
+        }
+      }
+      
+    } catch (error) {
+      console.error("❌ Error:", error);
+      alert(`Error: ${error.message}`);
+      
+      if (result) {
+        result.classList.remove("hide");
+        result.innerHTML = `<div style="color: red; padding: 20px;">
+          Error: ${error.message}<br>
+          Check the console for more details.
+        </div>`;
+      }
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Get AI Guidance";
+    }
+  });
+  {% else %}
+  // For non-pro users, show upgrade prompt on click
+  btn.addEventListener("click", () => {
+    result.classList.remove("hide");
+    result.innerHTML = `
+      <div style="text-align: center; padding: 40px; background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: white; border-radius: 12px;">
+        <h3 style="margin-top: 0; color: white;">🔒 AI Assistant Requires Pro</h3>
+        <p style="margin-bottom: 20px; opacity: 0.9;">Upgrade to Vital Guard Pro for unlimited AI health insights and advanced symptom analysis.</p>
+        <a href="/billing" class="btn" style="background: white; color: #f59e0b; text-decoration: none;">
+          Upgrade to Pro - $9.99/month
+        </a>
+        <p style="margin: 16px 0 0 0; opacity: 0.8; font-size: 14px;">Cancel anytime • 7-day money back guarantee</p>
+      </div>
+    `;
+  });
+  {% endif %}
+});
+</script>
 {% endblock %}

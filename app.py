@@ -11,16 +11,16 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 load_dotenv()
 
+app = Flask(__name__)
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY","dev-secret")
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL","sqlite:///vital_guard_fresh.db")
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
 # Production configuration
 if os.getenv('FLASK_ENV') == 'production':
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
-    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
+    if app.config['SQLALCHEMY_DATABASE_URI'] and app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
         app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://')
-        
-app = Flask(__name__)
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY","dev-secret")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL","sqlite:///app.db")
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -49,6 +49,21 @@ if USE_OPENAI:
         print(f"OpenAI failed: {e}")
         USE_OPENAI = False
         client = None
+
+# Stripe Setup
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLIC_KEY")
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+
+stripe_configured = bool(STRIPE_SECRET_KEY and STRIPE_PUBLISHABLE_KEY and STRIPE_PRICE_ID)
+
+if stripe_configured:
+    import stripe
+    stripe.api_key = STRIPE_SECRET_KEY
+    print("Stripe configured!")
+else:
+    print("Stripe not configured - paid features disabled")
 
 # Models
 class User(db.Model, UserMixin):
@@ -119,46 +134,57 @@ class Medication(db.Model):
     active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+class Subscription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    stripe_customer_id = db.Column(db.String(200))
+    stripe_subscription_id = db.Column(db.String(200))
+    status = db.Column(db.String(50), default="inactive")  # active, inactive, canceled, past_due
+    current_period_end = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 @login_manager.user_loader
 def load_user(uid): 
     return db.session.get(User, int(uid))
 
 def bootstrap_db():
-    """Initialize database - only run once per app start"""
+    """Initialize database - force complete reset"""
     with app.app_context():
         db_path = app.config["SQLALCHEMY_DATABASE_URI"].replace("sqlite:///", "")
         db_abs_path = os.path.abspath(db_path)
         
-        # Check if we need to reset database
-        needs_reset = False
-        if os.path.exists(db_abs_path):
-            try:
-                # Test if database has correct schema
-                conn = sqlite3.connect(db_abs_path)
-                cursor = conn.cursor()
-                cursor.execute("PRAGMA table_info(profile)")
-                columns = [col[1] for col in cursor.fetchall()]
-                if 'family_history' not in columns:
-                    needs_reset = True
-                    print("Database schema outdated - needs reset")
-                conn.close()
-            except Exception as e:
-                needs_reset = True
-                print(f"Database error - needs reset: {e}")
+        # NUCLEAR OPTION: Always delete and recreate for development
+        if os.path.exists(db_abs_path) and os.getenv('FLASK_ENV') != 'production':
+            print(f"Force deleting existing database: {db_abs_path}")
+            os.remove(db_abs_path)
         
-        if needs_reset:
-            print("Deleting old database...")
-            try:
-                os.remove(db_abs_path)
-            except Exception as e:
-                print(f"Could not delete database: {e}")
+        # Also remove journal files
+        journal_path = db_abs_path + '-journal'
+        if os.path.exists(journal_path):
+            os.remove(journal_path)
         
-        if not os.path.exists(db_abs_path):
-            print("Creating fresh database...")
-            db.create_all()
-            print(f"Created database at: {db_abs_path}")
-        else:
-            print("Database already exists with correct schema")
+        print("Creating completely fresh database...")
+        db.create_all()
+        print(f"Fresh database created at: {db_abs_path}")
+
+def user_has_active_subscription(user):
+    """Check if user has active subscription"""
+    if not user or not user.is_authenticated:
+        return False
+    
+    subscription = Subscription.query.filter_by(user_id=user.id).first()
+    if not subscription:
+        return False
+    
+    return subscription.status == "active" and (
+        not subscription.current_period_end or 
+        subscription.current_period_end > datetime.utcnow()
+    )
+
+def ai_usage_allowed(user):
+    """Check if user can use AI features"""
+    return user_has_active_subscription(user)
 
 def user_tz():
     tzname = "UTC"
@@ -290,6 +316,11 @@ def fallback_analysis(symptoms):
             "disclaimer": "Educational information only"
         }
 
+# Make user_has_active_subscription available in templates
+@app.context_processor
+def inject_user_functions():
+    return dict(user_has_active_subscription=user_has_active_subscription)
+
 # Routes
 @app.route("/")
 def index():
@@ -319,24 +350,6 @@ def register():
         flash("Welcome to Vital Guard.","success")
         return redirect(url_for("index"))
     return render_template("register.html")
-
-# Add these routes for SEO
-@app.route('/sitemap.xml')
-def sitemap():
-    return app.send_static_file('sitemap.xml')
-
-@app.route('/robots.txt')
-def robots():
-    return Response(
-        "User-agent: *\n"
-        "Allow: /\n"
-        "Disallow: /profile\n"
-        "Disallow: /medications\n" 
-        "Disallow: /reminders\n"
-        "Disallow: /export\n"
-        f"Sitemap: {request.url_root}sitemap.xml\n",
-        mimetype='text/plain'
-    )
 
 @app.route("/login", methods=["GET","POST"])
 def login():
@@ -529,7 +542,136 @@ def delete_medication(mid):
 @app.route("/assistant")
 @login_required
 def assistant():
-    return render_template("assistant.html", ai_enabled=USE_OPENAI)
+    has_pro = user_has_active_subscription(current_user)
+    return render_template("assistant.html", ai_enabled=USE_OPENAI, has_pro=has_pro)
+
+@app.route("/billing")
+@login_required
+def billing():
+    subscription = Subscription.query.filter_by(user_id=current_user.id).first()
+    has_active_sub = user_has_active_subscription(current_user)
+    
+    return render_template("billing.html", 
+                         stripe_configured=stripe_configured,
+                         stripe_public_key=STRIPE_PUBLISHABLE_KEY,
+                         stripe_price_id=STRIPE_PRICE_ID,
+                         subscription=subscription,
+                         has_active_subscription=has_active_sub)
+
+@app.route("/api/create-checkout-session", methods=["POST"])
+@login_required
+def create_checkout_session():
+    if not stripe_configured:
+        return jsonify({"error": "Stripe not configured"}), 400
+    
+    try:
+        # Create or get Stripe customer
+        subscription = Subscription.query.filter_by(user_id=current_user.id).first()
+        
+        if subscription and subscription.stripe_customer_id:
+            customer_id = subscription.stripe_customer_id
+        else:
+            customer = stripe.Customer.create(
+                email=current_user.email,
+                metadata={"user_id": current_user.id}
+            )
+            customer_id = customer.id
+            
+            # Create or update subscription record
+            if not subscription:
+                subscription = Subscription(
+                    user_id=current_user.id,
+                    stripe_customer_id=customer_id
+                )
+                db.session.add(subscription)
+            else:
+                subscription.stripe_customer_id = customer_id
+            
+            db.session.commit()
+        
+        # Create checkout session
+        checkout_session = stripe.checkout.Session.create(
+            customer=customer_id,
+            payment_method_types=['card'],
+            line_items=[{
+                'price': STRIPE_PRICE_ID,
+                'quantity': 1,
+            }],
+            mode='subscription',
+            success_url=request.host_url + 'billing?success=true',
+            cancel_url=request.host_url + 'billing?canceled=true',
+        )
+        
+        return jsonify({"id": checkout_session.id})
+        
+    except Exception as e:
+        print(f"Stripe error: {e}")
+        return jsonify({"error": str(e)}), 400
+
+@app.route("/webhook", methods=["POST"])
+def stripe_webhook():
+    payload = request.data
+    sig_header = request.headers.get('Stripe-Signature')
+    
+    if not stripe_configured or not STRIPE_WEBHOOK_SECRET:
+        return jsonify({"error": "Webhook not configured"}), 400
+    
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
+    except ValueError:
+        return jsonify({"error": "Invalid payload"}), 400
+    except stripe.error.SignatureVerificationError:
+        return jsonify({"error": "Invalid signature"}), 400
+    
+    # Handle the event
+    if event['type'] == 'customer.subscription.created':
+        subscription_data = event['data']['object']
+        handle_subscription_created(subscription_data)
+    elif event['type'] == 'customer.subscription.updated':
+        subscription_data = event['data']['object']
+        handle_subscription_updated(subscription_data)
+    elif event['type'] == 'customer.subscription.deleted':
+        subscription_data = event['data']['object']
+        handle_subscription_canceled(subscription_data)
+    
+    return jsonify({"status": "success"})
+
+def handle_subscription_created(subscription_data):
+    customer_id = subscription_data['customer']
+    subscription_id = subscription_data['id']
+    status = subscription_data['status']
+    current_period_end = datetime.fromtimestamp(subscription_data['current_period_end'])
+    
+    subscription = Subscription.query.filter_by(stripe_customer_id=customer_id).first()
+    if subscription:
+        subscription.stripe_subscription_id = subscription_id
+        subscription.status = status
+        subscription.current_period_end = current_period_end
+        subscription.updated_at = datetime.utcnow()
+        db.session.commit()
+
+def handle_subscription_updated(subscription_data):
+    subscription_id = subscription_data['id']
+    status = subscription_data['status']
+    current_period_end = datetime.fromtimestamp(subscription_data['current_period_end'])
+    
+    subscription = Subscription.query.filter_by(stripe_subscription_id=subscription_id).first()
+    if subscription:
+        subscription.status = status
+        subscription.current_period_end = current_period_end
+        subscription.updated_at = datetime.utcnow()
+        db.session.commit()
+
+def handle_subscription_canceled(subscription_data):
+    subscription_id = subscription_data['id']
+    
+    subscription = Subscription.query.filter_by(stripe_subscription_id=subscription_id).first()
+    if subscription:
+        subscription.status = "canceled"
+        subscription.updated_at = datetime.utcnow()
+        db.session.commit()
 
 @app.route("/api/health-assistant", methods=["POST"])
 @login_required
@@ -537,6 +679,14 @@ def health_assistant_api():
     print("HEALTH ASSISTANT API CALLED!")
     
     try:
+        # Check if user has paid access
+        if not ai_usage_allowed(current_user):
+            return jsonify({
+                "error": "AI Assistant requires Vital Guard Pro subscription",
+                "upgrade_required": True,
+                "upgrade_url": url_for('billing')
+            }), 403
+        
         data = request.get_json() or {}
         symptoms = data.get("symptoms", "").strip()
         
@@ -584,7 +734,7 @@ def export():
         meds = []
         
     data = {
-        "user": {"email": current_user.email, "is_pro": current_user.is_pro},
+        "user": {"email": current_user.email, "is_pro": user_has_active_subscription(current_user)},
         "profile": {
             "name": prof.name if prof else "",
             "age": prof.age if prof else None,
@@ -595,6 +745,24 @@ def export():
         "medications": [{"name": m.name, "dosage": m.dosage, "active": m.active} for m in meds]
     }
     return Response(json.dumps(data, indent=2), mimetype="application/json")
+
+# SEO Routes
+@app.route('/sitemap.xml')
+def sitemap():
+    return app.send_static_file('sitemap.xml')
+
+@app.route('/robots.txt')
+def robots():
+    return Response(
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /profile\n"
+        "Disallow: /medications\n" 
+        "Disallow: /reminders\n"
+        "Disallow: /export\n"
+        f"Sitemap: {request.url_root}sitemap.xml\n",
+        mimetype='text/plain'
+    )
 
 if __name__ == "__main__":
     print(f"Starting Vital Guard - AI {'ENABLED' if USE_OPENAI else 'DISABLED'}")

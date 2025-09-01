@@ -1,17 +1,168 @@
 {% extends "base.html" %}
+
+{% block title %}Vital Guard Pro - Subscription & Billing{% endblock %}
+{% block description %}Upgrade to Vital Guard Pro for unlimited AI health assistant access, advanced features, and priority support.{% endblock %}
+
 {% block content %}
 <section class="card glow fade-in-up">
-  <h2>Billing</h2>
-  {% if is_configured %}
-    <p class="muted">Subscribe to Vital Guard Pro.</p>
-    <button class="btn" id="buyBtn">Subscribe</button>
-    <div id="status" class="muted small"></div>
-    <script>
-      window.STRIPE_KEY="{{ stripe_public }}"; window.PRICE_ID="{{ price_id }}";
-    </script>
-    <script defer src="{{ url_for('static', filename='js/billing.js') }}"></script>
+  <h2>Vital Guard Pro</h2>
+  
+  {% if request.args.get('success') %}
+    <div class="flash success fade-in-down">
+      Welcome to Vital Guard Pro! Your subscription is now active.
+    </div>
+  {% endif %}
+  
+  {% if request.args.get('canceled') %}
+    <div class="flash error fade-in-down">
+      Subscription was canceled. You can try again anytime.
+    </div>
+  {% endif %}
+  
+  {% if has_active_subscription %}
+    <!-- Active Subscription -->
+    <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 24px; border-radius: 12px; margin-bottom: 24px;">
+      <h3 style="margin-top: 0; color: white;">✅ Pro Subscription Active</h3>
+      <p style="margin: 0; opacity: 0.9;">You have unlimited access to AI health assistant and all premium features.</p>
+    </div>
+    
+    <div class="grid-2">
+      <div>
+        <h4>Your Benefits</h4>
+        <ul style="color: #059669; margin: 0;">
+          <li>✅ Unlimited AI Health Assistant</li>
+          <li>✅ Advanced symptom analysis</li>
+          <li>✅ Priority support</li>
+          <li>✅ Export unlimited health data</li>
+          <li>✅ Family care team features</li>
+        </ul>
+      </div>
+      <div>
+        <h4>Subscription Details</h4>
+        <ul class="list">
+          <li><strong>Status:</strong> {{ subscription.status.title() if subscription else 'Active' }}</li>
+          {% if subscription and subscription.current_period_end %}
+          <li><strong>Next billing:</strong> {{ subscription.current_period_end.strftime('%B %d, %Y') }}</li>
+          {% endif %}
+          <li><strong>Plan:</strong> Vital Guard Pro ($9.99/month)</li>
+        </ul>
+      </div>
+    </div>
+    
+    <div style="margin-top: 24px; padding: 16px; background: #f8fafc; border-radius: 8px; border-left: 4px solid #6b7280;">
+      <p class="muted small" style="margin: 0;">To manage your subscription or update payment methods, please contact support at support@vitalguard.com</p>
+    </div>
+    
   {% else %}
-    <p class="muted">Stripe not configured. Add STRIPE_PUBLIC_KEY, STRIPE_SECRET_KEY, STRIPE_PRICE_ID in .env.</p>
+    <!-- No Active Subscription -->
+    <div style="background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%); color: white; padding: 24px; border-radius: 12px; margin-bottom: 24px;">
+      <h3 style="margin-top: 0; color: white;">🔒 AI Assistant Requires Pro</h3>
+      <p style="margin: 0; opacity: 0.9;">Upgrade to Vital Guard Pro to unlock AI-powered health insights and advanced features.</p>
+    </div>
+    
+    <div class="grid-2">
+      <div>
+        <h3>Free Plan</h3>
+        <ul class="list">
+          <li>✅ Basic health tracking</li>
+          <li>✅ Medication reminders</li>
+          <li>✅ Health profile management</li>
+          <li>❌ AI Health Assistant</li>
+          <li>❌ Advanced symptom analysis</li>
+          <li>❌ Priority support</li>
+        </ul>
+        <p class="muted small">You're currently on the free plan</p>
+      </div>
+      
+      <div style="border: 2px solid #059669; border-radius: 12px; padding: 20px; position: relative;">
+        <div style="position: absolute; top: -12px; left: 20px; background: #059669; color: white; padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: bold;">
+          RECOMMENDED
+        </div>
+        <h3 style="color: #059669;">Vital Guard Pro</h3>
+        <div style="font-size: 32px; font-weight: bold; color: #059669; margin: 12px 0;">
+          $9.99<span style="font-size: 16px; color: #6b7280;">/month</span>
+        </div>
+        <ul class="list">
+          <li>✅ Everything in Free</li>
+          <li>✅ <strong>Unlimited AI Health Assistant</strong></li>
+          <li>✅ Advanced symptom analysis</li>
+          <li>✅ Doctor recommendations</li>
+          <li>✅ Priority support</li>
+          <li>✅ Advanced health insights</li>
+        </ul>
+        
+        {% if stripe_configured %}
+          <button id="checkout-button" class="btn" style="width: 100%; margin-top: 16px;">
+            Upgrade to Pro
+          </button>
+          <p class="muted small" style="text-align: center; margin: 8px 0 0 0;">Cancel anytime</p>
+        {% else %}
+          <div class="btn" style="width: 100%; margin-top: 16px; opacity: 0.6; cursor: not-allowed;">
+            Payment Setup Required
+          </div>
+          <p class="muted small" style="text-align: center; margin: 8px 0 0 0;">Contact admin to enable billing</p>
+        {% endif %}
+      </div>
+    </div>
   {% endif %}
 </section>
+
+<section class="card fade-in-up delay-1" style="text-align: center; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; border: none;">
+  <h3 style="margin-top: 0; color: white;">Why Upgrade to Pro?</h3>
+  <p style="margin-bottom: 16px; opacity: 0.9;">Our AI health assistant provides personalized medical insights based on your complete health profile, helping you make informed decisions about your care.</p>
+  <div class="grid-2" style="text-align: left; margin-top: 24px;">
+    <div>
+      <h4 style="color: white;">🤖 Advanced AI Analysis</h4>
+      <p style="opacity: 0.9; margin: 0;">Get detailed symptom analysis, specialist recommendations, and health insights powered by cutting-edge AI technology.</p>
+    </div>
+    <div>
+      <h4 style="color: white;">⚡ Priority Support</h4>
+      <p style="opacity: 0.9; margin: 0;">Direct access to our health technology team for questions, feature requests, and technical support.</p>
+    </div>
+  </div>
+</section>
+
+{% if stripe_configured and not has_active_subscription %}
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+const stripe = Stripe('{{ stripe_public_key }}');
+const checkoutButton = document.getElementById('checkout-button');
+
+checkoutButton.addEventListener('click', function() {
+  checkoutButton.disabled = true;
+  checkoutButton.textContent = 'Processing...';
+  
+  fetch('/api/create-checkout-session', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.error) {
+      alert('Error: ' + data.error);
+      checkoutButton.disabled = false;
+      checkoutButton.textContent = 'Upgrade to Pro';
+      return;
+    }
+    
+    return stripe.redirectToCheckout({ sessionId: data.id });
+  })
+  .then(result => {
+    if (result && result.error) {
+      alert('Error: ' + result.error.message);
+      checkoutButton.disabled = false;
+      checkoutButton.textContent = 'Upgrade to Pro';
+    }
+  })
+  .catch(error => {
+    console.error('Error:', error);
+    alert('Something went wrong. Please try again.');
+    checkoutButton.disabled = false;
+    checkoutButton.textContent = 'Upgrade to Pro';
+  });
+});
+</script>
+{% endif %}
 {% endblock %}
