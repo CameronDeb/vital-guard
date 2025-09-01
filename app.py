@@ -11,6 +11,12 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 load_dotenv()
 
+# Production configuration
+if os.getenv('FLASK_ENV') == 'production':
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+    if app.config['SQLALCHEMY_DATABASE_URI'].startswith('postgres://'):
+        app.config['SQLALCHEMY_DATABASE_URI'] = app.config['SQLALCHEMY_DATABASE_URI'].replace('postgres://', 'postgresql://')
+        
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY","dev-secret")
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL","sqlite:///app.db")
@@ -313,6 +319,24 @@ def register():
         flash("Welcome to Vital Guard.","success")
         return redirect(url_for("index"))
     return render_template("register.html")
+
+# Add these routes for SEO
+@app.route('/sitemap.xml')
+def sitemap():
+    return app.send_static_file('sitemap.xml')
+
+@app.route('/robots.txt')
+def robots():
+    return Response(
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /profile\n"
+        "Disallow: /medications\n" 
+        "Disallow: /reminders\n"
+        "Disallow: /export\n"
+        f"Sitemap: {request.url_root}sitemap.xml\n",
+        mimetype='text/plain'
+    )
 
 @app.route("/login", methods=["GET","POST"])
 def login():

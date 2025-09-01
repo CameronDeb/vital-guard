@@ -3,22 +3,86 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Vital Guard</title>
+  
+  <!-- SEO Meta Tags -->
+  <title>{% block title %}Vital Guard - AI-Powered Personal Health Management{% endblock %}</title>
+  <meta name="description" content="{% block description %}Intelligent health tracking with AI symptom analysis, medication reminders, and personalized care plans. Secure, HIPAA-compliant health management platform.{% endblock %}">
+  <meta name="keywords" content="health tracking, AI health assistant, medication reminders, symptom checker, personal health records, telemedicine, health management app">
+  <meta name="author" content="Vital Guard">
+  <meta name="robots" content="index, follow">
+  
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="{{ request.url }}">
+  <meta property="og:title" content="{% block og_title %}Vital Guard - AI-Powered Personal Health Management{% endblock %}">
+  <meta property="og:description" content="{% block og_description %}Intelligent health tracking with AI symptom analysis, medication reminders, and personalized care plans.{% endblock %}">
+  <meta property="og:image" content="{{ url_for('static', filename='img/vital-guard-social.jpg', _external=True) }}">
+  
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="{{ request.url }}">
+  <meta property="twitter:title" content="{% block twitter_title %}Vital Guard - AI-Powered Personal Health Management{% endblock %}">
+  <meta property="twitter:description" content="{% block twitter_description %}Intelligent health tracking with AI symptom analysis, medication reminders, and personalized care plans.{% endblock %}">
+  <meta property="twitter:image" content="{{ url_for('static', filename='img/vital-guard-social.jpg', _external=True) }}">
+  
+  <!-- Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Vital Guard",
+    "description": "AI-powered personal health management platform with symptom analysis, medication tracking, and health reminders",
+    "url": "{{ request.base_url }}",
+    "applicationCategory": "HealthApplication",
+    "operatingSystem": "Web Browser",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "featureList": [
+      "AI Health Assistant",
+      "Medication Tracking",
+      "Health Reminders",
+      "Symptom Analysis",
+      "Care Team Management"
+    ]
+  }
+  </script>
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/apple-touch-icon.png') }}">
+  
+  <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Styles -->
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  
+  <!-- Scripts -->
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
   <script src="https://js.stripe.com/v3/"></script>
+  
+  <!-- Google Analytics (replace with your tracking ID) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=GA_TRACKING_ID"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'GA_TRACKING_ID');
+  </script>
 </head>
 <body>
   <div class="background-wrapper"></div>
   <header class="site-header fade-in-down">
     <a href="{{ url_for('index') }}" class="brand" style="text-decoration: none;">
-      <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="Vital Guard logo" width="32" height="32">
+      <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="Vital Guard - AI Health Management" width="32" height="32">
       <span>Vital Guard</span>
     </a>
-    <nav class="nav">
+    <nav class="nav" role="navigation" aria-label="Main navigation">
       <a href="{{ url_for('index') }}">Dashboard</a>
       {% if current_user.is_authenticated %}
         <a href="{{ url_for('assistant') }}">AI Assistant</a>
@@ -45,7 +109,7 @@
     {% endif %}
   {% endwith %}
 
-  <main class="container">
+  <main class="container" role="main">
     {% block content %}{% endblock %}
   </main>
 

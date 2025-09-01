@@ -1,4 +1,8 @@
 {% extends "base.html" %}
+
+{% block title %}Vital Guard - AI-Powered Personal Health Management Platform{% endblock %}
+{% block description %}Track medications, analyze symptoms with AI, set health reminders, and manage your complete health profile. Secure, intelligent health management for better wellness outcomes.{% endblock %}
+
 {% block content %}
 <section class="hero">
   <div class="fade-in-up">
@@ -86,4 +90,25 @@
   <a href="{{ url_for('assistant') }}" class="btn" style="background: white; color: #667eea;">Try AI Assistant</a>
 </section>
 {% endif %}
+
+<!-- SEO Content Section -->
+<section class="card fade-in-up delay-4" style="margin-top: 40px;">
+  <h2>Why Choose Vital Guard for Your Health Management?</h2>
+  <div class="grid-2">
+    <div>
+      <h3>🤖 AI-Powered Health Insights</h3>
+      <p class="muted">Our advanced AI analyzes your symptoms and medical history to provide personalized health recommendations and connect you with the right specialists.</p>
+      
+      <h3>💊 Smart Medication Management</h3>
+      <p class="muted">Never miss a dose or refill again. Track medications, set reminders, and monitor your prescription schedule with intelligent alerts.</p>
+    </div>
+    <div>
+      <h3>🔒 Secure & Private</h3>
+      <p class="muted">Your health data is encrypted and secure. Export your data anytime and maintain complete control over your health information.</p>
+      
+      <h3>👨‍⚕️ Care Team Coordination</h3>
+      <p class="muted">Share access with family members and healthcare providers to ensure coordinated, comprehensive care for better health outcomes.</p>
+    </div>
+  </div>
+</section>
 {% endblock %}
