@@ -768,4 +768,5 @@ if __name__ == "__main__":
     print(f"Starting Vital Guard - AI {'ENABLED' if USE_OPENAI else 'DISABLED'}")
     bootstrap_db()
     port = int(os.environ.get('PORT', 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    debug_mode = os.environ.get('FLASK_ENV') != 'production'
+    app.run(host="0.0.0.0", port=port, debug=debug_mode)
